@@ -8,6 +8,11 @@ strategy.py — backtesting.py 策略类，完全复刻 Pine Script 状态机逻
   - 止损：收盘价穿越通道线（upperk / lowerk）
   - 同一根 K 线退出后不再入场
   - 止损后等分数回落才能重新入场（waitReset 逻辑）
+
+新增过滤：
+  - ADX >= adx_threshold：趋势强度不够不入场
+  - Volume > vol_ma × vol_mult：成交量不放大不入场
+  - allow_short：控制是否允许做空
 """
 
 from backtesting import Strategy
@@ -15,15 +20,18 @@ from backtesting import Strategy
 
 class ConfluenceStrategy(Strategy):
     # 由 backtest_runner 在运行前设置
-    min_score: int = 4
+    min_score:      int   = 4
+    adx_threshold:  float = 20.0
+    use_adx:        bool  = True
+    vol_mult:       float = 1.2
+    use_vol:        bool  = True
+    allow_short:    bool  = True
 
     def init(self):
-        # 预计算指标已经作为 DataFrame 列传入，直接读取即可
         self._wait_buy_reset  = False
         self._wait_sell_reset = False
 
     def next(self):
-        # 至少需要 2 根 K 线来判断穿越
         if len(self.data.Close) < 2:
             return
 
@@ -42,25 +50,25 @@ class ConfluenceStrategy(Strategy):
         lowerk        = self.data.lowerk[-1]
         lowerk_prev   = self.data.lowerk[-2]
 
+        adx        = self.data.adx[-1]
+        is_high_vol = bool(self.data.isHighVol[-1])
+
         min_score = self.min_score
 
-        # ── 重置等待标志（分数回落到阈值以下）─────────────────────────
-        if self._wait_buy_reset and bull_score < min_score:
-            self._wait_buy_reset = False
+        # ── 重置等待标志 ─────────────────────────────────────────────
+        if self._wait_buy_reset  and bull_score < min_score:
+            self._wait_buy_reset  = False
         if self._wait_sell_reset and bear_score < min_score:
             self._wait_sell_reset = False
 
-        # ── 计算出场信号（crossunder / crossover，复刻 Pine Script）───
-        # ta.crossunder(close, sslExit): 前一根在上方，当根在下方
+        # ── 出场信号 ─────────────────────────────────────────────────
         tp_long  = (self.position.is_long
                     and close_prev > ssl_exit_prev
                     and close <= ssl_exit)
-        # ta.crossover(close, sslExit): 前一根在下方，当根在上方
         tp_short = (self.position.is_short
                     and close_prev < ssl_exit_prev
                     and close >= ssl_exit)
 
-        # 止损优先级低于止盈（与 Pine Script 一致：not tp_long 才判断 sl_long）
         sl_long  = (not tp_long
                     and self.position.is_long
                     and close_prev > lowerk_prev
@@ -70,39 +78,47 @@ class ConfluenceStrategy(Strategy):
                     and close_prev < upperk_prev
                     and close >= upperk)
 
-        # ── 处理出场 ────────────────────────────────────────────────
+        # ── 处理出场 ─────────────────────────────────────────────────
         exited_this_bar = False
 
         if tp_long or sl_long:
             self.position.close()
             exited_this_bar = True
             if sl_long:
-                self._wait_buy_reset = True   # 止损后等分数回落
+                self._wait_buy_reset = True
 
         elif tp_short or sl_short:
             self.position.close()
             exited_this_bar = True
             if sl_short:
-                self._wait_sell_reset = True  # 止损后等分数回落
+                self._wait_sell_reset = True
 
-        # ── 处理入场（出场同根 K 线不入场）────────────────────────────
+        # ── 处理入场 ─────────────────────────────────────────────────
         if exited_this_bar or self.position:
             return
 
         strong_buy  = bull_score >= min_score
         strong_sell = bear_score >= min_score
 
-        # Pine Script triggerBuy / triggerSell 条件
+        # ADX 和 Volume 硬性前置条件
+        ok_trend = (not self.use_adx) or (adx >= self.adx_threshold)
+        ok_vol   = (not self.use_vol)  or is_high_vol
+
         trigger_buy = (strong_buy
                        and not self._wait_buy_reset
                        and not is_choppy
-                       and not tp_short   # 同根出空不入多
+                       and ok_trend
+                       and ok_vol
+                       and not tp_short
                        and not sl_short)
 
-        trigger_sell = (strong_sell
+        trigger_sell = (self.allow_short
+                        and strong_sell
                         and not self._wait_sell_reset
                         and not is_choppy
-                        and not tp_long   # 同根出多不入空
+                        and ok_trend
+                        and ok_vol
+                        and not tp_long
                         and not sl_long)
 
         if trigger_buy:

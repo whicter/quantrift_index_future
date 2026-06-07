@@ -50,6 +50,32 @@ def _rma(src: pd.Series, length: int) -> pd.Series:
     return src.ewm(alpha=1.0 / length, adjust=False).mean()
 
 
+def _adx(high: pd.Series, low: pd.Series, close: pd.Series, n: int) -> pd.Series:
+    """Average Directional Index，对应 Pine Script ta.dmi(n, n)[2]。"""
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        high - low,
+        (high - prev_close).abs(),
+        (low  - prev_close).abs(),
+    ], axis=1).max(axis=1)
+
+    up   =  high.diff()
+    down = -low.diff()
+
+    plus_dm  = np.where((up > down) & (up > 0),   up.values,   0.0)
+    minus_dm = np.where((down > up) & (down > 0), down.values, 0.0)
+
+    atr_s      = _rma(tr, n)
+    plus_dm_s  = _rma(pd.Series(plus_dm,  index=high.index), n)
+    minus_dm_s = _rma(pd.Series(minus_dm, index=high.index), n)
+
+    plus_di  = 100 * plus_dm_s  / atr_s.replace(0, np.nan)
+    minus_di = 100 * minus_dm_s / atr_s.replace(0, np.nan)
+
+    dx  = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
+    return _rma(dx.fillna(0), n)
+
+
 def _true_range(high: pd.Series, low: pd.Series, close: pd.Series) -> pd.Series:
     """真实波幅（True Range），对应 ta.tr(true)。"""
     tr1 = high - low
@@ -392,6 +418,16 @@ def compute_signals(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     else:
         isChoppy = pd.Series(False, index=close.index)
 
+    # ── ⑧ ADX 趋势强度 ────────────────────────────────────────────
+    adx_len = int(params.get("adx_len", 14))
+    adxVal  = _adx(high, low, close, adx_len)
+
+    # ── ⑨ Volume 放量确认 ─────────────────────────────────────────
+    vol_len  = int(params.get("vol_len",  20))
+    vol_mult = float(params.get("vol_mult", 1.2))
+    vol_ma   = df["Volume"].rolling(vol_len, min_periods=vol_len).mean()
+    isHighVol = (df["Volume"] > vol_ma * vol_mult).fillna(False)
+
     # ── 综合评分 ───────────────────────────────────────────────────
     b1 = ut_bull.astype(int)
     b2 = (ssl_bull | buyCont).astype(int)
@@ -414,6 +450,8 @@ def compute_signals(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     result["sslExit"]   = sslExit
     result["upperk"]    = upperk
     result["lowerk"]    = lowerk
+    result["adx"]       = adxVal
+    result["isHighVol"] = isHighVol.astype(float)
     # 调试用分项分数
     result["b1_UT"]    = b1.astype(float)
     result["b2_SSL"]   = b2.astype(float)
