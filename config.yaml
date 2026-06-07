@@ -1,0 +1,47 @@
+# ── 数据源 ─────────────────────────────────────────────────────────
+symbol: "BTC-USD"
+interval: "1d"          # 1m/2m/5m/15m/30m/60m/1h/1d/1wk/1mo
+start: "2020-01-01"
+end: "2024-12-31"
+
+# 【可选】本地 CSV 文件路径（优先级高于 Yahoo Finance 下载）
+# 支持 TradingView 导出格式 (time,open,high,low,close,volume)
+# 或标准格式 (Date,Open,High,Low,Close,Volume)
+# data_file: "data/your_data.csv"
+
+# ── 优化目标 ────────────────────────────────────────────────────────
+optimize_for: "Sharpe Ratio"   # 或 "Return [%]" / "Calmar Ratio"
+min_trades: 10                 # 有效回测至少需要的交易次数
+
+# ── ① UT Bot ────────────────────────────────────────────────────────
+ut_key: 1.0       # ATR 灵敏度倍数
+ut_atr: 10        # ATR 周期
+
+# ── ② SSL Hybrid ────────────────────────────────────────────────────
+ssl_len: 60       # 基线 HMA 长度（必须为偶数）
+ssl2_len: 5       # SSL2 EMA 快线长度
+ssl_mult: 0.2     # 通道宽度倍数
+
+# ── ③ RSI ────────────────────────────────────────────────────────────
+rsi_len: 14
+rsi_ob: 70        # 超买线（仅用于副图信号，不影响评分）
+rsi_os: 30        # 超卖线（仅用于副图信号，不影响评分）
+
+# ── ④ MACD ───────────────────────────────────────────────────────────
+macd_fast: 12
+macd_slow: 26
+macd_signal: 9
+
+# ── ⑤ Squeeze Momentum ───────────────────────────────────────────────
+sqz_bbl: 20       # BB 长度
+sqz_bbm: 2.0      # BB 标准差倍数
+sqz_kcl: 20       # KC 长度
+sqz_kcm: 1.5      # KC ATR 倍数
+
+# ── ⑥ Confluence 评分门槛 ─────────────────────────────────────────────
+min_score: 4      # 触发强信号所需最低分（满分 6）
+
+# ── ⑦ 震荡过滤（Choppiness Index）────────────────────────────────────
+ci_len: 14
+ci_threshold: 61.8
+use_ci: true

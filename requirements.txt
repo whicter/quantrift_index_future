@@ -1,0 +1,7 @@
+backtesting
+yfinance
+pandas
+numpy
+scipy
+anthropic
+pyyaml
