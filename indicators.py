@@ -356,9 +356,10 @@ def compute_signals(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     ssl_bull = (close > BBMC) & (close > ssl1)
     ssl_bear = (close < BBMC) & (close < ssl1)
 
-    # SSL Exit 止盈线 (HMA-15 of high/low)
-    exitH   = _hma(high, 15)
-    exitL   = _hma(low,  15)
+    # SSL Exit 止盈线（周期可配置，默认15）
+    exit_len = int(params.get("exit_len", 15))
+    exitH   = _hma(high, exit_len)
+    exitL   = _hma(low,  exit_len)
     hlv_ex  = _ssl_state(close, exitH, exitL)
     sslExit = pd.Series(np.where(hlv_ex < 0, exitH, exitL), index=close.index)
 
@@ -452,6 +453,18 @@ def compute_signals(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     result["lowerk"]    = lowerk
     result["adx"]       = adxVal
     result["isHighVol"] = isHighVol.astype(float)
+    result["bbmcDir"]   = np.sign(BBMC.diff()).fillna(0).astype(float)
+    result["sqzVal"]    = sqzVal
+    result["sqzOff"]    = sqzOff.astype(float)   # 1 = squeeze fired (BB外扩), 0 = squeeze ON
+    result["rsiVal"]    = rsiVal
+    result["atrVal"]    = atr14   # 14 周期 ATR，供方案二固定止盈止损使用
+
+    # 趋势方向过滤器（SMA，周期可配置）
+    tf_len = int(params.get("trend_filter_len", 200))
+    if params.get("use_trend_filter", False):
+        result["trendSMA"] = _sma(close, tf_len)
+    else:
+        result["trendSMA"] = pd.Series(np.nan, index=close.index)
     # 调试用分项分数
     result["b1_UT"]    = b1.astype(float)
     result["b2_SSL"]   = b2.astype(float)
@@ -459,5 +472,6 @@ def compute_signals(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     result["b4_MACD"]  = b4.astype(float)
     result["b5_SQZ"]   = b5.astype(float)
     result["b6_CD"]    = b6.astype(float)
+    result["utTS"]     = utTS   # UT Bot 动态追踪止损线
 
     return result

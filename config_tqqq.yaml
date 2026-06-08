@@ -1,0 +1,64 @@
+allow_short: false
+symbol: TQQQ
+timeframes:
+  1h:
+    data_file: data/TQQQ_1h_2022-01-03_2026-06-05.csv
+    start: '2023-01-01'
+    end:   '2026-06-05'
+    interval: 1h
+
+    # ── 账户设置 ──────────────────────────────
+    cash:          100000
+    commission:    0.001     # 0.1% 每笔
+    margin:        1.0
+    n_contracts:   600        # 600 股 TQQQ（~$40K@$68 起步，~$111K@$185 顶）
+    contract_size: 1
+
+    # ── 信号参数（与 QQQ 优化结果相同）──
+    ut_atr:        8
+    ut_key:        3.0
+    ssl_len:       40
+    ssl2_len:      10
+    ssl_mult:      0.2238
+    exit_len:      14
+    rsi_len:       17
+    rsi_ob:        70
+    rsi_os:        30
+    rsi_mr_ob:     65.0
+    rsi_mr_os:     35.0
+    macd_fast:     12
+    macd_slow:     26
+    macd_signal:   7
+    sqz_bbl:       20
+    sqz_bbm:       2.0
+    sqz_kcl:       20
+    sqz_kcm:       2.3753
+    ci_len:        14
+    ci_threshold:  61.8
+    adx_len:       14
+    adx_threshold: 20.0
+    vol_len:       20
+    vol_mult:      1.0
+
+    # ── 过滤器开关 ────────────────────────────
+    min_score:          4
+    use_adx:            true
+    use_bbmc_dir:       true
+    use_ci:             true
+    use_vol:            true
+    use_squeeze_mr:     false
+    use_trend_filter:   false
+    trend_filter_len:   200
+
+    # ── 出场模式 ──────────────────────────────
+    use_staged_tp:      true
+    atr_tp1_mult:       1.0
+    atr_tp2_mult:       2.0
+    atr_sl_mult:        1.5
+    tp1_portion:        0.34
+    use_atr_exit:       false
+
+    # ── 翻转 ──────────────────────────────────
+    allow_reversal_flip:  false
+    reversal_score:       2
+    conflict_threshold:   2

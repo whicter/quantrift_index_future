@@ -1,119 +1,153 @@
-# ── 全局设置 ───────────────────────────────────────────────────────
-symbol: "NQ=F"
 allow_short: true
-optimize_for: "Sharpe Ratio"   # Sharpe Ratio / Return [%] / Calmar Ratio
-min_trades: 20                 # 每个周期至少需要的交易次数
-
-# ── 各周期独立参数 ─────────────────────────────────────────────────
+min_trades: 20
+optimize_for: Sharpe Ratio
+symbol: NQ=F
 timeframes:
-
-  1h:
-    interval: "1h"
-    start: "2025-01-01"
-    end: "2026-06-07"
-    data_file: "data/NQF_1h_2025-01-01_2026-06-07.csv"
-    commission: 0.00002        # NQ期货 ~$4/手
-    cash: 100000
-
-    # ── ① UT Bot
-    ut_key: 1.0
-    ut_atr: 10
-    # ── ② SSL Hybrid
-    ssl_len: 20                # 1H 用较短周期
-    ssl2_len: 5
-    ssl_mult: 0.2
-    # ── ③ RSI
-    rsi_len: 14
-    rsi_ob: 70
-    rsi_os: 30
-    # ── ④ MACD
-    macd_fast: 12
-    macd_slow: 26
-    macd_signal: 9
-    # ── ⑤ Squeeze
-    sqz_bbl: 20
-    sqz_bbm: 2.0
-    sqz_kcl: 20
-    sqz_kcm: 1.5
-    # ── ⑥ Confluence 门槛
-    min_score: 4
-    # ── ⑦ CI 过滤
-    ci_len: 14
-    ci_threshold: 61.8
-    use_ci: true
-    # ── ⑧ ADX 趋势强度（新）
+  1d:
     adx_len: 14
     adx_threshold: 20.0
+    allow_reversal_flip: true
+    atr_sl_mult: 1.5
+    atr_tp1_mult: 1.0
+    atr_tp2_mult: 2.0
+    cash: 100000
+    ci_len: 14
+    ci_threshold: 70.891
+    commission: 2.0e-05
+    conflict_threshold: 2
+    contract_size: 2
+    data_file: data/NQF_1d_2020-01-01_2026-06-07.csv
+    end: '2026-06-07'
+    exit_len: 15
+    interval: 1d
+    macd_fast: 12
+    macd_signal: 8
+    macd_slow: 26
+    margin: 0.05
+    min_score: 3
+    n_contracts: 12
+    reversal_score: 3
+    rsi_len: 17
+    rsi_mr_ob: 65.0
+    rsi_mr_os: 34.9636
+    rsi_ob: 70
+    rsi_os: 30
+    sqz_bbl: 20
+    sqz_bbm: 1.9719
+    sqz_kcl: 20
+    sqz_kcm: 1.2974
+    ssl2_len: 3
+    ssl_len: 40
+    ssl_mult: 0.3399
+    start: '2020-01-01'
+    tp1_portion: 0.34
+    trend_filter_len: 200
     use_adx: true
-    # ── ⑨ Volume 放量确认（新）
-    vol_len: 20
-    vol_mult: 1.2
+    use_atr_exit: false
+    use_bbmc_dir: true
+    use_ci: false
+    use_squeeze_mr: false
+    use_staged_tp: true
+    use_trend_filter: true
     use_vol: true
-
+    ut_atr: 5
+    ut_key: 3.0
+    vol_len: 20
+    vol_mult: 1.0
+  1h:
+    adx_len: 14
+    adx_threshold: 30.0
+    allow_reversal_flip: true
+    atr_sl_mult: 1.5
+    atr_tp1_mult: 1.0
+    atr_tp2_mult: 2.0
+    cash: 100000
+    ci_len: 14
+    ci_threshold: 61.8
+    commission: 2.0e-05
+    conflict_threshold: 2
+    contract_size: 2
+    data_file: data/NQF_1h_2024-03-01_2026-06-07.csv
+    end: '2026-06-07'
+    exit_len: 14
+    interval: 1h
+    macd_fast: 12
+    macd_signal: 7
+    macd_slow: 26
+    margin: 0.05
+    min_score: 5
+    n_contracts: 12
+    reversal_score: 2
+    rsi_len: 17
+    rsi_mr_ob: 65.0
+    rsi_mr_os: 35.0
+    rsi_ob: 70
+    rsi_os: 30
+    sqz_bbl: 20
+    sqz_bbm: 2.0
+    sqz_kcl: 20
+    sqz_kcm: 2.3753
+    ssl2_len: 10
+    ssl_len: 20
+    ssl_mult: 0.2238
+    start: '2024-03-01'
+    tp1_portion: 0.34
+    use_adx: true
+    use_bbmc_dir: true
+    use_ci: true
+    use_squeeze_mr: false
+    use_staged_tp: true
+    use_vol: true
+    ut_atr: 8
+    ut_key: 1.0
+    vol_len: 20
+    vol_mult: 1.0
   4h:
-    interval: "4h"
-    start: "2025-01-01"
-    end: "2026-06-07"
-    resample_from: "data/NQF_1h_2025-01-01_2026-06-07.csv"
-    commission: 0.00002
+    adx_len: 14
+    adx_threshold: 30.0
+    allow_reversal_flip: true
+    atr_sl_mult: 1.5
+    atr_tp1_mult: 1.0
+    atr_tp2_mult: 2.0
     cash: 100000
-
-    ut_key: 1.0
-    ut_atr: 10
-    ssl_len: 40                # 4H 用中等周期
-    ssl2_len: 5
-    ssl_mult: 0.2
-    rsi_len: 14
+    ci_len: 14
+    ci_threshold: 61.3366
+    commission: 2.0e-05
+    conflict_threshold: 2
+    contract_size: 2
+    data_file: data/NQF_4h_2024-03-01_2026-06-07.csv
+    end: '2026-06-07'
+    exit_len: 17
+    interval: 4h
+    macd_fast: 12
+    macd_signal: 10
+    macd_slow: 26
+    margin: 0.05
+    min_score: 5
+    n_contracts: 12
+    reversal_score: 2
+    rsi_len: 19
+    rsi_mr_ob: 65.0
+    rsi_mr_os: 35.0
     rsi_ob: 70
     rsi_os: 30
-    macd_fast: 12
-    macd_slow: 26
-    macd_signal: 9
     sqz_bbl: 20
-    sqz_bbm: 2.0
+    sqz_bbm: 2.3351
     sqz_kcl: 20
-    sqz_kcm: 1.5
-    min_score: 5
-    ci_len: 14
-    ci_threshold: 61.8
-    use_ci: true
-    adx_len: 14
-    adx_threshold: 22.0
+    sqz_kcm: 1.4778
+    ssl2_len: 13
+    ssl_len: 54
+    ssl_mult: 0.5
+    start: '2024-03-01'
+    tp1_portion: 0.34
     use_adx: true
-    vol_len: 20
-    vol_mult: 1.2
-    use_vol: true
-
-  1d:
-    interval: "1d"
-    start: "2020-01-01"
-    end: "2026-06-07"
-    data_file: "data/NQF_1d_2020-01-01_2026-06-07.csv"
-    commission: 0.00002
-    cash: 100000
-
-    ut_key: 1.0
-    ut_atr: 10
-    ssl_len: 60                # 日线用原始较长周期
-    ssl2_len: 5
-    ssl_mult: 0.2
-    rsi_len: 14
-    rsi_ob: 70
-    rsi_os: 30
-    macd_fast: 12
-    macd_slow: 26
-    macd_signal: 9
-    sqz_bbl: 20
-    sqz_bbm: 2.0
-    sqz_kcl: 20
-    sqz_kcm: 1.5
-    min_score: 5
-    ci_len: 14
-    ci_threshold: 61.8
+    use_bbmc_dir: true
     use_ci: true
-    adx_len: 14
-    adx_threshold: 25.0
-    use_adx: true
-    vol_len: 20
-    vol_mult: 1.5
+    use_squeeze_mr: false
+    use_staged_tp: true
+    use_trend_filter: false
     use_vol: true
+    ut_atr: 5
+    ut_key: 5.0
+    vol_len: 20
+    vol_mult: 1.0

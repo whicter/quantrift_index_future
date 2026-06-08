@@ -109,9 +109,16 @@ def download_data(symbol: str, start: str, end: str, interval: str) -> pd.DataFr
 
 def load_data(tf_params: dict) -> pd.DataFrame:
     """根据 tf_params 加载单个周期数据（CSV / resample / 下载）。"""
+    start = tf_params.get("start", "")
+
+    def _filter_start(df: pd.DataFrame) -> pd.DataFrame:
+        if start:
+            df = df[df.index >= pd.Timestamp(start)]
+        return df
+
     data_file = tf_params.get("data_file", "")
     if data_file and Path(data_file).exists():
-        return load_from_csv(data_file)
+        return _filter_start(load_from_csv(data_file))
 
     resample_from = tf_params.get("resample_from", "")
     if resample_from and Path(resample_from).exists():
@@ -122,6 +129,7 @@ def load_data(tf_params: dict) -> pd.DataFrame:
             "Low":  "min",   "Close": "last",
             "Volume": "sum",
         }).dropna()
+        df = _filter_start(df)
         print(f"  resample → {interval}: {len(df)} 行")
         return df
 
@@ -191,13 +199,31 @@ def run_one(tf_name: str, tf_params: dict, plot: bool = False) -> dict:
     ConfluenceStrategy.use_adx       = bool(tf_params.get("use_adx",  True))
     ConfluenceStrategy.vol_mult      = float(tf_params.get("vol_mult", 1.2))
     ConfluenceStrategy.use_vol       = bool(tf_params.get("use_vol",  True))
-    ConfluenceStrategy.allow_short   = bool(tf_params.get("allow_short", True))
+    ConfluenceStrategy.allow_short          = bool(tf_params.get("allow_short", True))
+    ConfluenceStrategy.reversal_score       = int(tf_params.get("reversal_score", 2))
+    ConfluenceStrategy.allow_reversal_flip  = bool(tf_params.get("allow_reversal_flip", True))
+    ConfluenceStrategy.conflict_threshold   = int(tf_params.get("conflict_threshold", 6))
+    ConfluenceStrategy.use_bbmc_dir        = bool(tf_params.get("use_bbmc_dir", False))
+    ConfluenceStrategy.use_squeeze_mr      = bool(tf_params.get("use_squeeze_mr", False))
+    ConfluenceStrategy.rsi_mr_ob           = float(tf_params.get("rsi_mr_ob", 65.0))
+    ConfluenceStrategy.rsi_mr_os           = float(tf_params.get("rsi_mr_os", 35.0))
+    ConfluenceStrategy.use_atr_exit        = bool(tf_params.get("use_atr_exit", False))
+    ConfluenceStrategy.atr_tp_mult         = float(tf_params.get("atr_tp_mult", 2.0))
+    ConfluenceStrategy.atr_sl_mult         = float(tf_params.get("atr_sl_mult", 1.0))
+    ConfluenceStrategy.use_trend_filter    = bool(tf_params.get("use_trend_filter", False))
+    ConfluenceStrategy.n_contracts         = int(tf_params.get("n_contracts", 0))
+    ConfluenceStrategy.contract_size       = int(tf_params.get("contract_size", 2))
+    ConfluenceStrategy.use_staged_tp       = bool(tf_params.get("use_staged_tp", False))
+    ConfluenceStrategy.atr_tp1_mult        = float(tf_params.get("atr_tp1_mult", 1.0))
+    ConfluenceStrategy.atr_tp2_mult        = float(tf_params.get("atr_tp2_mult", 2.0))
+    ConfluenceStrategy.tp1_portion         = float(tf_params.get("tp1_portion", 0.34))
 
     bt = Backtest(
         df,
         ConfluenceStrategy,
         cash            = int(tf_params.get("cash", 100_000)),
         commission      = float(tf_params.get("commission", 0.00002)),
+        margin          = float(tf_params.get("margin", 1.0)),
         exclusive_orders= True,
     )
     stats = bt.run()

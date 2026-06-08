@@ -20,10 +20,13 @@ import argparse
 import subprocess
 from pathlib import Path
 
+import random
+import math
+
 import yaml
-import anthropic
 
 BASE_DIR     = Path(__file__).parent
+RNG = random.Random()
 CONFIG_PATH  = BASE_DIR / "config.yaml"
 RESULTS_DIR  = BASE_DIR / "results"
 RESULTS_DIR.mkdir(exist_ok=True)
@@ -50,6 +53,10 @@ PARAM_CONSTRAINTS = {
     "adx_threshold":{"type": float, "min": 15.0, "max": 40.0},
     "vol_len":      {"type": int,   "min": 10,   "max": 50},
     "vol_mult":     {"type": float, "min": 1.0,  "max": 3.0},
+    "exit_len":     {"type": int,   "min": 10,   "max": 50},
+    "reversal_score": {"type": int, "min": 2,    "max": 5},
+    "rsi_mr_ob":    {"type": float, "min": 55.0, "max": 75.0},
+    "rsi_mr_os":    {"type": float, "min": 25.0, "max": 45.0},
 }
 
 TF_WEIGHTS = {"1h": 0.40, "4h": 0.35, "1d": 0.25}
@@ -125,115 +132,104 @@ def score_results(results: dict, min_trades: int) -> float:
     return (total / weight) - penalty
 
 
-def ask_claude(results: dict, current_config: dict,
-               round_num: int, history: list, optimize_for: str) -> dict:
+def suggest_params(results: dict, current_config: dict,
+                   round_num: int, history: list) -> dict:
     """
-    调用 Claude claude-opus-4-6（adaptive thinking + streaming）。
-    返回 {tf_name: {param: value, ...}} 格式的建议。
+    本地启发式优化器：根据回测结果诊断问题，给出参数建议。
+    策略：
+      1. 交易太少 → 放宽入场条件
+      2. PF < 1 且交易足够 → 随机扰动参数（模拟退火）
+      3. PF >= 1 → 在当前基础上微调提升 Sharpe
     """
-    client = anthropic.Anthropic()
+    # 根据轮数决定探索幅度（早期大步，后期精细）
+    temperature = max(0.05, 0.5 * math.exp(-round_num / 15))
+    suggestions = {}
 
-    constraints_text = "\n".join(
-        f"  {k}: {c['type'].__name__}, [{c['min']}, {c['max']}]"
-        + (f", 步长={c.get('step',1)}" if "step" in c else "")
-        for k, c in PARAM_CONSTRAINTS.items()
-    )
-
-    recent = history[-5:] if len(history) > 5 else history
-    history_text = json.dumps(
-        [{"round": h["round"], "score": round(h["score"], 3),
-          "tf_results": {tf: {"sharpe": round(r.get("Sharpe Ratio") or -99, 3),
-                              "pf":     round(r.get("Profit Factor") or 0, 3),
-                              "trades": r.get("# Trades") or 0}
-                         for tf, r in h["tf_results"].items()},
-          "changed": h.get("changed_params", {})}
-         for h in recent],
-        indent=2
-    )
-
-    # 当前各周期可优化参数快照
-    tf_params_text = {}
-    for tf, tf_cfg in current_config.get("timeframes", {}).items():
-        tf_params_text[tf] = {k: tf_cfg[k] for k in PARAM_CONSTRAINTS if k in tf_cfg}
-
-    # 当前回测结果摘要
-    results_summary = {}
     for tf, r in results.items():
-        if "error" not in r:
-            results_summary[tf] = {
-                "Sharpe Ratio":     r.get("Sharpe Ratio"),
-                "Profit Factor":    r.get("Profit Factor"),
-                "Win Rate [%]":     r.get("Win Rate [%]"),
-                "# Trades":         r.get("# Trades"),
-                "Return [%]":       r.get("Return [%]"),
-                "Max. Drawdown [%]":r.get("Max. Drawdown [%]"),
-            }
+        if "error" in r:
+            continue
+        tf_cfg = current_config.get("timeframes", {}).get(tf, {})
+        tf_sugg = {}
 
-    prompt = f"""你是量化策略优化专家。以下是三个周期的回测结果，请给出参数调整建议。
+        pf     = r.get("Profit Factor") or 0
+        trades = r.get("# Trades")      or 0
+        sharpe = r.get("Sharpe Ratio")  or -99.0
+        wr     = r.get("Win Rate [%]")  or 0
 
-## 第 {round_num} 轮回测结果
-```json
-{json.dumps(results_summary, indent=2)}
-```
+        # ── 诊断 1：交易太少 → 放宽过滤条件 ─────────────────────────
+        if trades < 25:
+            curr = tf_cfg.get("min_score", 4)
+            tf_sugg["min_score"] = max(3, curr - 1)
+            curr = tf_cfg.get("adx_threshold", 20.0)
+            tf_sugg["adx_threshold"] = max(15.0, round(curr - 2.0, 1))
+            curr = tf_cfg.get("vol_mult", 1.2)
+            tf_sugg["vol_mult"] = max(1.0, round(curr - 0.2, 2))
+            if tf_cfg.get("use_ci", True):
+                tf_sugg["use_ci"] = False
 
-## 当前各周期参数
-```json
-{json.dumps(tf_params_text, indent=2)}
-```
+        # ── 诊断 2：PF < 1 且交易足够 → 随机扰动寻找更好配置 ────────
+        elif pf < 1.0:
+            # 每轮选 3-4 个参数扰动
+            params_pool = [
+                "ut_key", "ut_atr", "ssl_len", "ssl_mult",
+                "adx_threshold", "min_score", "sqz_bbm", "sqz_kcm",
+                "ci_threshold", "vol_mult", "exit_len", "reversal_score",
+                "rsi_mr_ob", "rsi_mr_os",
+            ]
+            n_params = RNG.randint(3, 5)
+            chosen = RNG.sample(params_pool, min(n_params, len(params_pool)))
+            for p in chosen:
+                c = PARAM_CONSTRAINTS.get(p)
+                if not c or p not in tf_cfg:
+                    continue
+                curr = tf_cfg[p]
+                rng_width = (c["max"] - c["min"]) * temperature
+                delta = RNG.uniform(-rng_width, rng_width)
+                nv = max(c["min"], min(c["max"], curr + delta))
+                if c["type"] is int:
+                    nv = int(round(nv))
+                    if p == "ssl_len" and nv % 2 != 0:
+                        nv += 1
+                    tf_sugg[p] = nv
+                else:
+                    tf_sugg[p] = round(nv, 4)
 
-## 近期优化历史（最近5轮）
-```json
-{history_text}
-```
+        # ── 诊断 3：PF >= 1 但 Sharpe 还可以更高 → 微调 ─────────────
+        else:
+            params_pool = [
+                "ut_key", "adx_threshold", "ssl_len", "ssl2_len",
+                "rsi_len", "macd_signal", "sqz_kcm", "exit_len", "reversal_score",
+                "rsi_mr_ob", "rsi_mr_os",
+            ]
+            n_params = RNG.randint(2, 3)
+            chosen = RNG.sample(params_pool, min(n_params, len(params_pool)))
+            for p in chosen:
+                c = PARAM_CONSTRAINTS.get(p)
+                if not c or p not in tf_cfg:
+                    continue
+                curr = tf_cfg[p]
+                rng_width = (c["max"] - c["min"]) * temperature * 0.5
+                delta = RNG.uniform(-rng_width, rng_width)
+                nv = max(c["min"], min(c["max"], curr + delta))
+                if c["type"] is int:
+                    nv = int(round(nv))
+                    if p == "ssl_len" and nv % 2 != 0:
+                        nv += 1
+                    tf_sugg[p] = nv
+                else:
+                    tf_sugg[p] = round(nv, 4)
 
-## 参数约束（各周期共用同一范围）
-```
-{constraints_text}
-```
-注意：macd_fast < macd_slow；ssl_len 必须为偶数。
+        # macd 约束
+        mf = tf_sugg.get("macd_fast",  tf_cfg.get("macd_fast",  12))
+        ms = tf_sugg.get("macd_slow",  tf_cfg.get("macd_slow",  26))
+        if mf >= ms:
+            tf_sugg.pop("macd_fast",  None)
+            tf_sugg.pop("macd_slow",  None)
 
-## 优化目标
-最大化加权平均 Sharpe（1H×40% + 4H×35% + 1D×25%）。
-**每个周期必须独立盈利**（PF >= 1.0，交易次数 >= 20）。
-当前评分权重：1H最重要，因为小仓位但交易最频繁。
+        if tf_sugg:
+            suggestions[tf] = clamp_params(tf_sugg)
 
-请返回一个 JSON，格式为各周期需要修改的参数：
-{{"1h": {{"min_score": 5}}, "4h": {{"adx_threshold": 25}}, "1d": {{}}}}
-
-不要解释，直接输出 JSON。"""
-
-    with client.messages.stream(
-        model="claude-opus-4-6",
-        max_tokens=1024,
-        thinking={"type": "adaptive"},
-        messages=[{"role": "user", "content": prompt}]
-    ) as stream:
-        response = stream.get_final_message()
-
-    text = ""
-    for block in response.content:
-        if hasattr(block, "text") and block.type == "text":
-            text = block.text
-            break
-
-    # 提取最外层的 {...} JSON
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
-        print(f"  [警告] Claude 未返回有效 JSON:\n  {text[:300]}")
-        return {}
-
-    try:
-        raw = json.loads(match.group())
-    except json.JSONDecodeError as e:
-        print(f"  [警告] JSON 解析失败: {e}")
-        return {}
-
-    # 对每个 tf 的建议做 clamp
-    result = {}
-    for tf, suggestions in raw.items():
-        if isinstance(suggestions, dict) and suggestions:
-            result[tf] = clamp_params(suggestions)
-    return result
+    return suggestions
 
 
 def apply_suggestions(config: dict, suggestions: dict) -> tuple[dict, dict]:
@@ -326,13 +322,13 @@ def optimize(n_rounds: int = 10):
         if round_num == n_rounds:
             break
 
-        print("  Claude 分析中...")
+        print("  本地优化器分析中...")
         try:
-            suggestions = ask_claude(
-                results, current_config, round_num, history, optimize_for
+            suggestions = suggest_params(
+                results, current_config, round_num, history
             )
         except Exception as e:
-            print(f"  [Claude 调用失败] {e}")
+            print(f"  [优化器异常] {e}")
             suggestions = {}
 
         if not suggestions:
