@@ -162,10 +162,9 @@ class ConfluenceStrategy(Strategy):
             tp1_price = ep + d * self.atr_tp1_mult * ea
             tp2_price = ep + d * self.atr_tp2_mult * ea
 
-            # ① 硬止损：UT Bot 动态追踪止损线
-            ut_ts = float(self.data.utTS[-1])
-            hit_sl = ((d ==  1 and close < ut_ts) or
-                      (d == -1 and close > ut_ts))
+            # ① 止损：UT Bot 动态追踪止损线
+            sl_price = float(self.data.utTS[-1])
+            hit_sl = (d == 1 and close < sl_price) or (d == -1 and close > sl_price)
             if hit_sl:
                 self.position.close()
                 self._reset_stage()
@@ -191,7 +190,7 @@ class ConfluenceStrategy(Strategy):
                     self.position.close(portion=0.5)
                     self._stage = 3
 
-            # ④ 剩余 1/3：用 sslExit 跟踪出场
+            # ④ 剩余 1/3：sslExit 跟踪出场
             if self._stage == 3 and self.position:
                 ssl_trail_exit = (
                     (d ==  1 and close_prev > ssl_exit_prev and close <= ssl_exit) or

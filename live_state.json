@@ -1,0 +1,25 @@
+{
+  "reference_equity": 1126961.31,
+  "NQ": {
+    "1h": {
+      "signed_contracts": 0
+    },
+    "4h": {
+      "signed_contracts": 0
+    },
+    "1d": {
+      "signed_contracts": 0
+    }
+  },
+  "ES": {
+    "1h": {
+      "signed_contracts": 0
+    },
+    "4h": {
+      "signed_contracts": 0
+    },
+    "1d": {
+      "signed_contracts": 0
+    }
+  }
+}

@@ -2,8 +2,17 @@ allow_short: true
 min_trades: 20
 optimize_for: Sharpe Ratio
 symbol: NQ=F
+
+# ── 仓位管理参数 ──────────────────────────────────────────────────────
+# 每笔信号风险 = 账户净值 × risk_pct%（净值低于 equity_threshold 时所有TF统一使用）
+risk_pct: 1.0
+
+# 净值阈值：超过此值启用金字塔模式（各TF使用 risk_pct_pyramid）
+# 净值必须在无持仓时测量（持仓期间锁定开仓时的净值）
+equity_threshold: 60000
 timeframes:
   1d:
+    risk_pct_pyramid: 4.5   # 金字塔模式：1D强信号重仓（$120k≈5手，$200k≈8手）
     adx_len: 14
     adx_threshold: 20.0
     allow_reversal_flip: true
@@ -55,6 +64,7 @@ timeframes:
     vol_len: 20
     vol_mult: 1.0
   1h:
+    risk_pct_pyramid: 0.4   # 金字塔模式：1H试探轻仓（$120k≈2手，$200k≈3手）
     adx_len: 14
     adx_threshold: 30.0
     allow_reversal_flip: true
@@ -103,6 +113,7 @@ timeframes:
     vol_len: 20
     vol_mult: 1.0
   4h:
+    risk_pct_pyramid: 1.5   # 金字塔模式：4H主力仓位（$120k≈3手，$200k≈5手）
     adx_len: 14
     adx_threshold: 30.0
     allow_reversal_flip: true
@@ -149,5 +160,139 @@ timeframes:
     use_vol: true
     ut_atr: 5
     ut_key: 5.0
+    vol_len: 20
+    vol_mult: 1.0
+
+# ── ES（MES $5/点）周期参数 ──────────────────────────────────────────
+# 注意：以下参数未经 ES 专项优化，使用 NQ 同周期参数作为起点
+# 建议后续用 ES 历史数据单独跑优化
+es_timeframes:
+  1h:
+    risk_pct_pyramid: 0.4   # 同NQ 1H，MES $5/pt 止损更贵，实际手数会少于NQ
+    adx_len: 14
+    adx_threshold: 30.0
+    allow_reversal_flip: true
+    atr_sl_mult: 1.5
+    atr_tp1_mult: 1.0
+    atr_tp2_mult: 2.0
+    ci_len: 14
+    ci_threshold: 61.8
+    commission: 0.00002
+    conflict_threshold: 2
+    exit_len: 14
+    macd_fast: 12
+    macd_signal: 7
+    macd_slow: 26
+    margin: 0.05
+    min_score: 5
+    reversal_score: 2
+    rsi_len: 17
+    rsi_mr_ob: 65.0
+    rsi_mr_os: 35.0
+    rsi_ob: 70
+    rsi_os: 30
+    sqz_bbl: 20
+    sqz_bbm: 2.0
+    sqz_kcl: 20
+    sqz_kcm: 2.4
+    ssl2_len: 10
+    ssl_len: 20
+    ssl_mult: 0.22
+    tp1_portion: 0.34
+    use_adx: true
+    use_bbmc_dir: true
+    use_ci: true
+    use_squeeze_mr: false
+    use_staged_tp: true
+    use_trend_filter: false
+    use_vol: true
+    ut_atr: 8
+    ut_key: 1.0
+    vol_len: 20
+    vol_mult: 1.0
+  4h:
+    risk_pct_pyramid: 1.5
+    adx_len: 14
+    adx_threshold: 30.0
+    allow_reversal_flip: true
+    atr_sl_mult: 1.5
+    atr_tp1_mult: 1.0
+    atr_tp2_mult: 2.0
+    ci_len: 14
+    ci_threshold: 61.3
+    commission: 0.00002
+    conflict_threshold: 2
+    exit_len: 17
+    macd_fast: 12
+    macd_signal: 10
+    macd_slow: 26
+    margin: 0.05
+    min_score: 5
+    reversal_score: 2
+    rsi_len: 19
+    rsi_mr_ob: 65.0
+    rsi_mr_os: 35.0
+    rsi_ob: 70
+    rsi_os: 30
+    sqz_bbl: 20
+    sqz_bbm: 2.3
+    sqz_kcl: 20
+    sqz_kcm: 1.5
+    ssl2_len: 13
+    ssl_len: 54
+    ssl_mult: 0.5
+    tp1_portion: 0.34
+    use_adx: true
+    use_bbmc_dir: true
+    use_ci: true
+    use_squeeze_mr: false
+    use_staged_tp: true
+    use_trend_filter: false
+    use_vol: true
+    ut_atr: 5
+    ut_key: 5.0
+    vol_len: 20
+    vol_mult: 1.0
+  1d:
+    risk_pct_pyramid: 4.5
+    adx_len: 14
+    adx_threshold: 20.0
+    allow_reversal_flip: true
+    atr_sl_mult: 1.5
+    atr_tp1_mult: 1.0
+    atr_tp2_mult: 2.0
+    ci_len: 14
+    ci_threshold: 70.9
+    commission: 0.00002
+    conflict_threshold: 2
+    exit_len: 15
+    macd_fast: 12
+    macd_signal: 8
+    macd_slow: 26
+    margin: 0.05
+    min_score: 3
+    reversal_score: 3
+    rsi_len: 17
+    rsi_mr_ob: 65.0
+    rsi_mr_os: 35.0
+    rsi_ob: 70
+    rsi_os: 30
+    sqz_bbl: 20
+    sqz_bbm: 1.97
+    sqz_kcl: 20
+    sqz_kcm: 1.3
+    ssl2_len: 3
+    ssl_len: 40
+    ssl_mult: 0.34
+    tp1_portion: 0.34
+    use_adx: true
+    use_bbmc_dir: true
+    use_ci: false
+    use_squeeze_mr: false
+    use_staged_tp: true
+    use_trend_filter: true
+    use_vol: true
+    ut_atr: 5
+    ut_key: 3.0
     vol_len: 20
     vol_mult: 1.0
