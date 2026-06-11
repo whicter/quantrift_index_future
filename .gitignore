@@ -1,6 +1,17 @@
+# Python 虚拟环境
+venv/
+
+# 运行时状态（机器独立，不上传）
+live_state.json
+logs/
+
+# 大文件
+data/
+
+# Python 缓存
 __pycache__/
 *.pyc
-*.pyo
-.DS_Store
-data/
+*.egg-info/
+
+# 回测结果
 results/
