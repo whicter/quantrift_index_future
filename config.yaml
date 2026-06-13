@@ -64,7 +64,7 @@ timeframes:
     vol_len: 20
     vol_mult: 1.0
   1h:
-    risk_pct_pyramid: 0.4   # 金字塔模式：1H试探轻仓（$120k≈2手，$200k≈3手）
+    risk_pct_pyramid: 1.0   # 金字塔模式：1H试探轻仓（$120k≈2手，$200k≈3手）
     adx_len: 14
     adx_threshold: 30.0
     allow_reversal_flip: true
@@ -168,7 +168,7 @@ timeframes:
 # 建议后续用 ES 历史数据单独跑优化
 es_timeframes:
   1h:
-    risk_pct_pyramid: 0.4   # 同NQ 1H，MES $5/pt 止损更贵，实际手数会少于NQ
+    risk_pct_pyramid: 1.0   # 同NQ 1H，MES $5/pt 止损更贵，实际手数会少于NQ
     adx_len: 14
     adx_threshold: 30.0
     allow_reversal_flip: true
