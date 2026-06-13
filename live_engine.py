@@ -373,8 +373,33 @@ def process_tf(ib: IB, contract, instrument: str, tf: str,
         tp1_portion = float(params.get("tp1_portion", 0.34))
         new_signed  = d * _stage_to_contracts(stage, n, tp1_portion)
 
+    # 4.5 幻象信号过滤：当状态文件空仓时，必须当前bar指标也满足入场条件
+    old_signed_pre = inst_state[tf]['signed_contracts']
+    if old_signed_pre == 0 and new_signed != 0:
+        lb       = df_sig.iloc[-1]
+        min_sc   = int(params.get('min_score', 4))
+        conflict = int(params.get('conflict_threshold', 6))
+        adx_thr  = float(params.get('adx_threshold', 20.0))
+        ok_adx   = (not params.get('use_adx', True)) or (float(lb.get('adx', 0)) >= adx_thr)
+        ok_vol   = (not params.get('use_vol', True)) or bool(lb.get('isHighVol', False))
+        use_bbmc = bool(params.get('use_bbmc_dir', False))
+        if new_signed > 0:
+            valid = (lb['bullScore'] >= min_sc and lb['bearScore'] <= conflict
+                     and not bool(lb['isChoppy']) and ok_adx and ok_vol
+                     and (not use_bbmc or lb['bbmcDir'] >= 0))
+        else:
+            valid = (lb['bearScore'] >= min_sc and lb['bullScore'] <= conflict
+                     and not bool(lb['isChoppy']) and ok_adx and ok_vol
+                     and (not use_bbmc or lb['bbmcDir'] <= 0))
+        if not valid:
+            log.warning(f'  ⚠ 回测末态与当前bar指标不符，忽略（幻象信号）')
+            log.info(f'    bull={lb["bullScore"]:.0f} bear={lb["bearScore"]:.0f} '
+                     f'choppy={bool(lb["isChoppy"])} adx={float(lb.get("adx",0)):.1f} '
+                     f'bbmcDir={lb["bbmcDir"]:.0f} → 需要 bull>={min_sc}, bear<={conflict}')
+            new_signed = 0
+
     # 5. 对比状态，计算差额
-    old_signed = inst_state[tf]["signed_contracts"]
+    old_signed = inst_state[tf]['signed_contracts']
     delta      = new_signed - old_signed
 
     def dir_str(s):
