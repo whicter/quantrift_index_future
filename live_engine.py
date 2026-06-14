@@ -559,6 +559,19 @@ def main():
     try:
         while True:
             ib.sleep(10)
+
+            if not ib.isConnected():
+                log.warning("⚠️  IB 连接断开，尝试重连...")
+                while True:
+                    try:
+                        ib.connect(args.host, args.port, clientId=20, timeout=30, readonly=False)
+                        contracts.update({inst: get_contract(ib, inst) for inst in active_instruments})
+                        log.info("✅ IB 重连成功")
+                        break
+                    except Exception as exc:
+                        log.error(f"  重连失败: {exc}，30秒后重试")
+                        ib.sleep(30)
+
             now_et = datetime.now(ET)
 
             if not is_market_open(now_et):
