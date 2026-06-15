@@ -133,6 +133,15 @@ IB 服务器每天约 **23:00–23:45 ET** 重启，连接会断开。
 **IB Gateway Auto-Restart 配置**：
 `Configure → Settings → Auto Restart → Enable`（每周日 1AM ET 重启一次，需手动重登录）
 
+**Telegram 告警**（需配置 token/chat_id）：
+- IB 连接成功 / 持仓不一致 / 自动对齐
+- Error 1100/1101（连接断开）
+- 每笔下单成功
+- 引擎崩溃重启
+- 每周五 14:05 ET 发送周度复盘（净值 + 持仓汇总）
+
+配置方式：编辑 `config.yaml` 的 `telegram.token` 和 `telegram.chat_id`，或设置环境变量 `TG_TOKEN`/`TG_CHAT_ID`。
+
 ---
 
 ## 8. 合约滚动（每季度）
@@ -169,6 +178,8 @@ MNQ/MES 季度到期（3月、6月、9月、12月第三个周五）。
 
 - 正数 = 多头手数，负数 = 空头手数
 - 如果手动在 TWS 修改了持仓，必须同步修改此文件，否则引擎会下错方向的订单
+
+**重连后自动对齐**：引擎重连时会对比 IB 实际净仓和状态文件之和。如有不一致，自动以 IB 为准修正状态文件，并发 Telegram 告警。IB=0 时全清所有 TF；IB≠0 时绝对值最大的 TF 吸收差额。
 
 ---
 
