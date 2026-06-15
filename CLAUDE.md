@@ -120,14 +120,24 @@ IB Gateway 设置：Auto-Restart ON（每周日 1AM ET 自动重启）；Auto-Lo
 | `compare_pyramid_risk.py` | pyramid 风险参数对比 |
 | `pyramid_sizing.py` | 全历史复利回测（$100k/$200k 月度调仓） |
 
+## 最近实现（2026-06-14）
+
+**Telegram 告警**（commit ebbca09）：
+- `tg_alert()` 非阻塞线程发送，静默失败
+- 触发时机：IB 连接成功、持仓不一致、Error 1100、下单成功、引擎崩溃
+- 配置：`config.yaml` 的 `telegram.token/chat_id`，或环境变量 `TG_TOKEN`/`TG_CHAT_ID`
+
+**重连后状态对齐**（commit dea0de7）：
+- `reconcile_state()`：IB=0 时全清所有 TF；IB≠0 时绝对值最大的 TF 吸收差额
+- `do_connect()` 检测不一致时自动修正状态文件并发 Telegram 告警
+- 同时新增 `reqAllOpenOrders()` 日志检查
+
+**周度复盘**（commit 699b191）：
+- 每周五 14:05 ET 自动发 Telegram，内容：净值 + 各 TF 持仓 + 净仓汇总
+
 ## TODO
 
-### 1. Telegram Alert（优先级：高）
-
-加在 `live_engine.py` 里，在 `place_order`、`do_connect` 成功、Error 1100、crash loop 时触发。
-使用 `httpx.post` 调 Telegram Bot API，失败静默处理不影响主逻辑。
-
-### 2. IBC 自动登录（优先级：中）
+### 1. IBC 自动登录（优先级：中）
 
 **目标**：彻底消除每周手动登录 IB Gateway 的需求。
 
