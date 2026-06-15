@@ -122,8 +122,11 @@ IB Gateway 设置：Auto-Restart ON（每周日 1AM ET 自动重启）；Auto-Lo
 
 ## 最近实现（2026-06-15）
 
-**Telegram 配置完成**（config.yaml）：
+**Telegram 配置完成**：
 - bot: `@quantrift_index_future_bot`
+- token 存储：pm2 环境变量（`/Users/congrenhan/.pm2/dump.pm2`），不进 git，Mac Studio 重启后自动恢复
+- config.yaml 里 token/chat_id 保持空，repo 公开安全
+- 配置命令：`PATH=/opt/homebrew/bin:$PATH TG_TOKEN='...' TG_CHAT_ID='...' pm2 start ib-bot --update-env && pm2 save`
 - 已验证：连接成功、下单告警均可正常发送
 
 ## 最近实现（2026-06-14）
