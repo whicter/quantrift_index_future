@@ -5,3 +5,4 @@ numpy
 scipy
 anthropic
 pyyaml
+ib_insync
