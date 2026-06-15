@@ -120,6 +120,12 @@ IB Gateway 设置：Auto-Restart ON（每周日 1AM ET 自动重启）；Auto-Lo
 | `compare_pyramid_risk.py` | pyramid 风险参数对比 |
 | `pyramid_sizing.py` | 全历史复利回测（$100k/$200k 月度调仓） |
 
+## 最近实现（2026-06-15）
+
+**Telegram 配置完成**（config.yaml）：
+- bot: `@quantrift_index_future_bot`
+- 已验证：连接成功、下单告警均可正常发送
+
 ## 最近实现（2026-06-14）
 
 **Telegram 告警**（commit ebbca09）：
@@ -137,27 +143,9 @@ IB Gateway 设置：Auto-Restart ON（每周日 1AM ET 自动重启）；Auto-Lo
 
 ## TODO
 
-### 0. Telegram 配置（优先级：最高，代码已完成，只差填 token）
+### 0. ~~Telegram 配置~~（已完成 2026-06-15）
 
-**步骤：**
-
-1. 在 Telegram 找 @BotFather → `/newbot` → 按提示取名 → 拿到 token（格式：`1234567890:ABCdef...`）
-2. 把 bot 拉进一个群组（或直接私聊 bot 发任意消息），然后访问：
-   `https://api.telegram.org/bot<TOKEN>/getUpdates`
-   → 在返回的 JSON 里找 `"chat":{"id":...}` 即为 chat_id（群组 id 是负数）
-3. 在 Mac Studio 上填入 config.yaml：
-   ```bash
-   ssh mac-studio "nano /Users/congrenhan/Documents/quantrift_index_future/config.yaml"
-   # 填入 telegram.token 和 telegram.chat_id
-   ssh mac-studio "PATH=/opt/homebrew/bin:$PATH pm2 restart ib-bot"
-   ```
-4. 验证：干跑触发一次告警
-   ```bash
-   ssh mac-studio "cd /Users/congrenhan/Documents/quantrift_index_future && /opt/homebrew/bin/python3.11 live_engine.py --port 4001 --run-now --dry-run"
-   # 应收到 Telegram 连接成功通知
-   ```
-
-> ⚠️ config.yaml 在 .gitignore 之外（会被 git 提交），token 填入后注意不要推到公开 repo。建议改用环境变量：在 Mac Studio 的 pm2 启动配置里加 `TG_TOKEN` 和 `TG_CHAT_ID`，config.yaml 里保持空。
+bot `@quantrift_index_future_bot` 已配置并验证，config.yaml 中已填入 token/chat_id。
 
 ### 1. IBC 自动登录（优先级：中）
 
