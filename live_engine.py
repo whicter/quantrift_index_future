@@ -496,18 +496,47 @@ def main():
         log.info("  dry-run 模式：只打印信号，不下单")
     log.info("═" * 62)
 
-    # ── 连接 IB ─────────────────────────────────────────────────────
-    ib       = connect_ib(args.host, args.port)
-    equity   = get_account_equity(ib)
-    state    = load_state(active_instruments)
-    contracts = {inst: get_contract(ib, inst) for inst in active_instruments}
+    # ── 初始化 ───────────────────────────────────────────────────────
+    import time as _time
+    ib        = IB()
+    equity    = 0.0
+    state     = load_state(active_instruments)
+    contracts = {}
 
-    # 显示当前持仓 vs 状态文件
-    for inst in active_instruments:
-        ib_pos  = get_ib_position(ib, inst)
-        st_pos  = sum(state[inst][tf]["signed_contracts"] for tf in ["1h", "4h", "1d"])
-        log.info(f"{inst} IB 持仓: {ib_pos:+d}手  状态文件: {st_pos:+d}手"
-                 + ("  ⚠️ 不一致！" if ib_pos != st_pos else ""))
+    def do_connect():
+        """带重试的连接，连上后同步持仓/净值/合约"""
+        nonlocal equity, contracts
+        while True:
+            try:
+                if ib.isConnected():
+                    try: ib.disconnect()
+                    except Exception: pass
+                log.info(f"连接 IB Gateway {args.host}:{args.port}...")
+                ib.connect(args.host, args.port, clientId=20, timeout=30, readonly=False)
+                log.info(f"✅ IB 已连接  账户: {ib.wrapper.accounts}")
+                equity = get_account_equity(ib)
+                contracts.update({inst: get_contract(ib, inst) for inst in active_instruments})
+                for inst in active_instruments:
+                    ib_pos = get_ib_position(ib, inst)
+                    st_pos = sum(state[inst][tf]["signed_contracts"] for tf in ["1h","4h","1d"])
+                    log.info(f"  {inst} IB持仓: {ib_pos:+d}手  状态文件: {st_pos:+d}手"
+                             + ("  ⚠️ 不一致！" if ib_pos != st_pos else ""))
+                return
+            except Exception as exc:
+                log.error(f"  连接失败: {exc}，10秒后重试")
+                try: ib.disconnect()
+                except Exception: pass
+                _time.sleep(10)
+
+    # Error 1100/1101/2110 → 触发重连
+    needs_reconnect = [False]
+    def on_error(reqId, errorCode, errorString, contract):
+        if errorCode in (1100, 1101, 2110):
+            needs_reconnect[0] = True
+            log.warning(f"⚠️  Error {errorCode}: IB连接异常，将触发重连")
+    ib.errorEvent += on_error
+
+    do_connect()
 
     def build_params(inst, tf):
         p = inst_tf_configs[inst][tf].copy()
@@ -549,88 +578,72 @@ def main():
     log.info("\n▶ 等待 Bar 收盘触发...\n")
     triggered: set = set()
 
-    # 收集所有品种用到的 TF
     all_tfs = set()
     for inst in active_instruments:
         all_tfs |= set(inst_tf_configs[inst].keys())
     if args.tf:
         all_tfs = {args.tf}
 
-    # 用于检测 Error 1100（IB 与服务器断连）
-    connectivity_lost = [False]
-
-    def on_error(reqId, errorCode, errorString, contract):
-        if errorCode == 1100:
-            connectivity_lost[0] = True
-            log.warning("⚠️  Error 1100: IB 与服务器断连，将触发重连")
-
-    ib.errorEvent += on_error
-
-    def reconnect():
-        connectivity_lost[0] = False
-        log.warning("⚠️  IB 连接断开，尝试重连...")
-        try:
-            ib.disconnect()
-        except Exception:
-            pass
-        import time
-        while True:
-            try:
-                time.sleep(30)
-                ib.connect(args.host, args.port, clientId=20, timeout=30, readonly=False)
-                contracts.update({inst: get_contract(ib, inst) for inst in active_instruments})
-                log.info("✅ IB 重连成功")
-                break
-            except Exception as exc:
-                log.error(f"  重连失败: {exc}，30秒后重试")
-
     try:
         while True:
-            ib.sleep(10)
+            try:
+                ib.sleep(10)
 
-            if connectivity_lost[0] or not ib.isConnected():
-                reconnect()
-
-            now_et = datetime.now(ET)
-
-            if not is_market_open(now_et):
-                continue
-
-            for tf in all_tfs:
-                if not is_bar_close(tf, now_et):
+                if needs_reconnect[0] or not ib.isConnected():
+                    needs_reconnect[0] = False
+                    log.warning("⚠️  连接断开，重连中...")
+                    try: ib.disconnect()
+                    except Exception: pass
+                    _time.sleep(10)
+                    do_connect()
                     continue
 
-                key = f"{tf}-{now_et.strftime('%Y%m%d-%H-%M')}"
-                if key in triggered:
+                now_et = datetime.now(ET)
+                if not is_market_open(now_et):
                     continue
 
-                triggered.add(key)
-                log.info(f"\n🕐 {now_et.strftime('%Y-%m-%d %H:%M:%S ET')}  "
-                         f"{tf.upper()} Bar 收盘触发")
-                log.info(f"  等待 {BAR_CLOSE_DELAY}s，确保 IB 数据更新完毕...")
-                ib.sleep(BAR_CLOSE_DELAY)
-
-                equity = _refresh_equity(ib, state, active_instruments, equity)
-                use_pyramid = equity >= equity_threshold
-                log.info(f"  净值基准: ${equity:,.2f}  "
-                         f"{'【金字塔模式】' if use_pyramid else '【统一仓位模式】'}")
-
-                for inst in active_instruments:
-                    if tf not in inst_tf_configs[inst]:
+                for tf in all_tfs:
+                    if not is_bar_close(tf, now_et):
                         continue
-                    params = build_params(inst, tf)
-                    process_tf(ib, contracts[inst], inst, tf,
-                               params, state,
-                               equity, _get_tf_risk_pct(params, equity), args.dry_run)
+                    key = f"{tf}-{now_et.strftime('%Y%m%d-%H-%M')}"
+                    if key in triggered:
+                        continue
+                    triggered.add(key)
+                    log.info(f"\n🕐 {now_et.strftime('%Y-%m-%d %H:%M:%S ET')}  "
+                             f"{tf.upper()} Bar 收盘触发")
+                    log.info(f"  等待 {BAR_CLOSE_DELAY}s，确保 IB 数据更新完毕...")
+                    ib.sleep(BAR_CLOSE_DELAY)
 
-            # 清理超过 1 小时的旧触发记录
-            cutoff_h = datetime.now(ET).strftime('%Y%m%d-%H')
-            triggered = {k for k in triggered if k[:13] == cutoff_h}
+                    equity = _refresh_equity(ib, state, active_instruments, equity)
+                    use_pyramid = equity >= equity_threshold
+                    log.info(f"  净值基准: ${equity:,.2f}  "
+                             f"{'【金字塔模式】' if use_pyramid else '【统一仓位模式】'}")
+
+                    for inst in active_instruments:
+                        if tf not in inst_tf_configs[inst]:
+                            continue
+                        params = build_params(inst, tf)
+                        process_tf(ib, contracts[inst], inst, tf,
+                                   params, state,
+                                   equity, _get_tf_risk_pct(params, equity), args.dry_run)
+
+                cutoff_h = datetime.now(ET).strftime('%Y%m%d-%H')
+                triggered = {k for k in triggered if k[:13] == cutoff_h}
+
+            except KeyboardInterrupt:
+                raise
+            except Exception as exc:
+                log.error(f"💥 主循环错误: {exc}，断线重连中...")
+                try: ib.disconnect()
+                except Exception: pass
+                _time.sleep(10)
+                do_connect()
 
     except KeyboardInterrupt:
         log.info("\n⛔ 用户中断")
     finally:
-        ib.disconnect()
+        try: ib.disconnect()
+        except Exception: pass
         log.info("IB 已断开连接")
 
 
