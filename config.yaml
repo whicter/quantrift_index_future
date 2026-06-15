@@ -1,3 +1,9 @@
+# ── Telegram 告警配置 ──────────────────────────────────────────────────
+# 留空则不发告警；也可通过环境变量 TG_TOKEN / TG_CHAT_ID 配置
+telegram:
+  token: ""      # 格式: "1234567890:ABCdefGHIjklMNOpqrSTUvwxYZ"
+  chat_id: ""    # 格式: "-100123456789"（群组加 -100 前缀）或 "123456789"（个人）
+
 allow_short: true
 min_trades: 20
 optimize_for: Sharpe Ratio

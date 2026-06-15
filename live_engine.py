@@ -24,6 +24,8 @@ live_engine.py — NQ + ES 多周期模拟盘/实盘执行引擎
 import argparse
 import json
 import logging
+import os
+import threading
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -39,6 +41,33 @@ from strategy import ConfluenceStrategy
 
 import warnings
 warnings.filterwarnings("ignore")
+
+# ── Telegram 告警（模块级，main() 初始化后填入 token/chat_id）────────────
+_TG: dict = {"token": "", "chat_id": ""}
+
+
+def tg_alert(msg: str):
+    """发送 Telegram 告警（非阻塞，静默失败，不影响主逻辑）。"""
+    token   = _TG.get("token", "")
+    chat_id = _TG.get("chat_id", "")
+    if not token or not chat_id:
+        return
+
+    def _send():
+        try:
+            import urllib.request, urllib.parse
+            url  = f"https://api.telegram.org/bot{token}/sendMessage"
+            data = urllib.parse.urlencode({
+                "chat_id": chat_id,
+                "text": f"[QuantRift] {msg}",
+            }).encode()
+            req = urllib.request.Request(url, data=data, method="POST")
+            urllib.request.urlopen(req, timeout=5)
+        except Exception:
+            pass
+
+    threading.Thread(target=_send, daemon=True).start()
+
 
 # ── 路径 / 时区 ────────────────────────────────────────────────────────
 BASE_DIR   = Path(__file__).parent
@@ -300,9 +329,11 @@ def place_order(ib: IB, contract, delta: int, dry_run: bool = False):
     order = MarketOrder(action, qty)
     trade = ib.placeOrder(contract, order)
     ib.sleep(3)
+    fill_price = trade.orderStatus.avgFillPrice or "待成交"
     log.info(f"  ✅ {action} {qty} {sym}  |  "
              f"状态: {trade.orderStatus.status}  "
-             f"成交均价: {trade.orderStatus.avgFillPrice or '待成交'}")
+             f"成交均价: {fill_price}")
+    tg_alert(f"✅ 下单成功: {action} {qty} {sym} @ {fill_price}")
     return trade
 
 
@@ -472,6 +503,15 @@ def main():
     with open(args.config) as f:
         config = yaml.safe_load(f)
 
+    # ── Telegram 告警配置 ──────────────────────────────────────────────
+    tg_cfg = config.get("telegram", {})
+    _TG["token"]   = tg_cfg.get("token")   or os.environ.get("TG_TOKEN",   "")
+    _TG["chat_id"] = tg_cfg.get("chat_id") or os.environ.get("TG_CHAT_ID", "")
+    if _TG["token"]:
+        log.info("  Telegram 告警: 已启用")
+    else:
+        log.info("  Telegram 告警: 未配置（config.yaml telegram.token 或 TG_TOKEN 环境变量）")
+
     allow_short      = config.get("allow_short", True)
     risk_pct         = float(config.get("risk_pct", 1.0))
     equity_threshold = float(config.get("equity_threshold", 60000))
@@ -516,11 +556,39 @@ def main():
                 log.info(f"✅ IB 已连接  账户: {ib.wrapper.accounts}")
                 equity = get_account_equity(ib)
                 contracts.update({inst: get_contract(ib, inst) for inst in active_instruments})
+
+                # 检查持仓一致性
+                mismatch_lines = []
                 for inst in active_instruments:
                     ib_pos = get_ib_position(ib, inst)
                     st_pos = sum(state[inst][tf]["signed_contracts"] for tf in ["1h","4h","1d"])
-                    log.info(f"  {inst} IB持仓: {ib_pos:+d}手  状态文件: {st_pos:+d}手"
-                             + ("  ⚠️ 不一致！" if ib_pos != st_pos else ""))
+                    if ib_pos != st_pos:
+                        msg = f"{inst} IB持仓: {ib_pos:+d}手  状态文件: {st_pos:+d}手  ⚠️ 不一致！"
+                        log.warning(f"  {msg}")
+                        mismatch_lines.append(msg)
+                    else:
+                        log.info(f"  {inst} IB持仓: {ib_pos:+d}手  状态文件: {st_pos:+d}手  ✅")
+
+                # 拉取未平仓单（日志记录）
+                try:
+                    open_orders = ib.reqAllOpenOrders()
+                    ib.sleep(1)
+                    if open_orders:
+                        log.warning(f"  ⚠️ 发现 {len(open_orders)} 笔未平仓单，请手动核查！")
+                        for o in open_orders:
+                            log.warning(f"    {o.contract.symbol} {o.order.action} "
+                                        f"{o.order.totalQuantity} {o.orderStatus.status}")
+                    else:
+                        log.info("  未平仓单: 无")
+                except Exception as e:
+                    log.warning(f"  拉取未平仓单失败: {e}")
+
+                # Telegram 通知
+                alert_parts = [f"✅ IB 已连接  账户净值: ${equity:,.0f}"]
+                if mismatch_lines:
+                    alert_parts.append("⚠️ 持仓不一致，请手动核查 live_state.json！")
+                    alert_parts.extend(mismatch_lines)
+                tg_alert("\n".join(alert_parts))
                 return
             except Exception as exc:
                 log.error(f"  连接失败: {exc}，10秒后重试")
@@ -534,6 +602,7 @@ def main():
         if errorCode in (1100, 1101, 2110):
             needs_reconnect[0] = True
             log.warning(f"⚠️  Error {errorCode}: IB连接异常，将触发重连")
+            tg_alert(f"⚠️ IB 连接异常 (Error {errorCode})，正在重连...")
     ib.errorEvent += on_error
 
     do_connect()
@@ -657,4 +726,5 @@ if __name__ == "__main__":
             break
         except Exception as e:
             log.error(f"💥 引擎崩溃: {e}，30秒后自动重启...")
+            tg_alert(f"💥 引擎崩溃: {e}\n30秒后自动重启...")
             time.sleep(30)
