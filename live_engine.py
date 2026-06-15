@@ -556,21 +556,40 @@ def main():
     if args.tf:
         all_tfs = {args.tf}
 
+    # 用于检测 Error 1100（IB 与服务器断连）
+    connectivity_lost = [False]
+
+    def on_error(reqId, errorCode, errorString, contract):
+        if errorCode == 1100:
+            connectivity_lost[0] = True
+            log.warning("⚠️  Error 1100: IB 与服务器断连，将触发重连")
+
+    ib.errorEvent += on_error
+
+    def reconnect():
+        connectivity_lost[0] = False
+        log.warning("⚠️  IB 连接断开，尝试重连...")
+        try:
+            ib.disconnect()
+        except Exception:
+            pass
+        import time
+        while True:
+            try:
+                time.sleep(30)
+                ib.connect(args.host, args.port, clientId=20, timeout=30, readonly=False)
+                contracts.update({inst: get_contract(ib, inst) for inst in active_instruments})
+                log.info("✅ IB 重连成功")
+                break
+            except Exception as exc:
+                log.error(f"  重连失败: {exc}，30秒后重试")
+
     try:
         while True:
             ib.sleep(10)
 
-            if not ib.isConnected():
-                log.warning("⚠️  IB 连接断开，尝试重连...")
-                while True:
-                    try:
-                        ib.connect(args.host, args.port, clientId=20, timeout=30, readonly=False)
-                        contracts.update({inst: get_contract(ib, inst) for inst in active_instruments})
-                        log.info("✅ IB 重连成功")
-                        break
-                    except Exception as exc:
-                        log.error(f"  重连失败: {exc}，30秒后重试")
-                        ib.sleep(30)
+            if connectivity_lost[0] or not ib.isConnected():
+                reconnect()
 
             now_et = datetime.now(ET)
 
