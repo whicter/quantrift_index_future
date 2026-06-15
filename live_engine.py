@@ -669,9 +669,9 @@ def main():
         return
 
     def send_daily_recap():
-        """每天 16:05 ET 发一次复盘报告（1D Bar 收盘后）。"""
+        """每周五收市（14:05 ET）发一次周度复盘报告。"""
         eq = get_account_equity(ib)
-        lines = [f"📊 每日复盘  {datetime.now(ET).strftime('%Y-%m-%d')}",
+        lines = [f"📊 周度复盘  {datetime.now(ET).strftime('%Y-%m-%d')}",
                  f"账户净值: ${eq:,.2f}"]
         for inst in active_instruments:
             pos_parts = []
@@ -712,8 +712,8 @@ def main():
                 if not is_market_open(now_et):
                     continue
 
-                # 每日复盘（16:05 ET）
-                if now_et.hour == 16 and now_et.minute == 5 and now_et.second <= 15:
+                # 每周复盘（周五 14:05 ET 收市时）
+                if now_et.weekday() == 4 and now_et.hour == 14 and now_et.minute == 5 and now_et.second <= 15:
                     recap_key = f"recap-{now_et.strftime('%Y%m%d')}"
                     if recap_key not in triggered:
                         triggered.add(recap_key)
