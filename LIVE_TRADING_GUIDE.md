@@ -12,8 +12,8 @@
 ### 合约规格
 | 品种 | 代码 | 交易所 | 乘数 | 每点价值 | 当前合约 |
 |------|------|--------|------|---------|---------|
-| Micro NQ | MNQ | CME | 2 | $2 | MNQM6（到期 2026-06-18）|
-| Micro ES | MES | CME | 5 | $5 | MESM6（到期 2026-06-20）|
+| Micro NQ | MNQ | CME | 2 | $2 | MNQU6（到期 2026-09-19）|
+| Micro ES | MES | CME | 5 | $5 | MESU6（到期 2026-09-19）|
 
 > ⚠️ **合约到期自动滚动**：live_engine.py 使用 `ContFuture`（前月连续），到期前 IB 自动切换到下一个合约，无需手动操作。但持仓会自动平仓再开仓，会产生一笔滑点。建议在到期前 3 天手动滚仓。
 
@@ -49,36 +49,35 @@
 
 ---
 
-## 4. 切换到实盘
+## 4. 当前实盘配置
 
-### 步骤
-1. 确认 TWS 已登录**实盘账户**（不是 paper trading）
-2. 在 TWS 中确认端口为 **7496**
-3. 修改启动命令，加 `--port 7496`：
+现在使用 **IB Gateway**（非 TWS），运行于 Mac Studio，实盘端口 **4001**。
+账户：U17682857，净值约 $32,365（2026-06-14）。
 
-```bash
-# 模拟盘（当前）
-python live_engine.py
-
-# 实盘（切换后）
-python live_engine.py --port 7496
-```
-
-> ⚠️ **切换前必须检查**：
-> - `live_state.json` 中的 signed_contracts 是否与实盘账户当前持仓一致
+> ⚠️ **切换模拟盘时**：
+> - 改为 `--port 4002`，确认 IB Gateway 已切换到 paper trading 模式
+> - `live_state.json` 中的 signed_contracts 须与账户持仓一致
 > - 如不一致，先运行 `--run-now --dry-run` 确认信号，再手动同步持仓
 
 ---
 
-## 5. 仓位大小（$25,000 账户）
+## 5. 仓位大小与风险模式
 
 引擎使用 ATR 风险定仓，公式：
 
 ```
 手数 = (账户净值 × risk_pct%) / (ATR × atr_sl_mult × 合约乘数)
+最小 1 手
 ```
 
-**当前配置（risk_pct = 1.0%）的典型仓位：**
+**两种模式（自动切换）：**
+
+| 净值 | 模式 | NQ risk | ES risk |
+|------|------|---------|---------|
+| < $60,000 | 统一模式 | 1.0% | 1.0% |
+| ≥ $60,000 | Pyramid 模式 | 1h:1.0% / 4h:1.5% / 1d:4.5% | 1h:1.0% / 4h:1.5% / 1d:4.5% |
+
+**当前账户（~$32,365）典型仓位（统一 1.0%）：**
 
 | 品种 | 周期 | 典型ATR | 止损距离 | 止损金额 | 手数 |
 |------|------|---------|---------|---------|------|
@@ -89,29 +88,34 @@ python live_engine.py --port 7496
 | MES | 4H | 50pt | 75pt | $375 | 1手 |
 | MES | 1D | 100pt | 150pt | $750 | 1手 |
 
-**最大总风险**（NQ+ES 全开仓）：约 $5,000（账户的 20%）
-
-如需更保守，将 `config.yaml` 中 `risk_pct: 1.0` 改为 `0.5`。
+**分批止盈（Staged TP，已启用）：**
+- TP1：ATR × 1.0，平掉 34% 仓位
+- TP2：ATR × 2.0，平掉剩余仓位
 
 ---
 
 ## 6. 启动命令
 
+引擎由 pm2 管理，通常无需手动启动。常用操作：
+
 ```bash
-# 测试（干跑，不下单）
-python live_engine.py --run-now --dry-run
+# 查看引擎状态
+ssh mac-studio "PATH=/opt/homebrew/bin:$PATH pm2 status"
 
-# 只跑 NQ 测试
-python live_engine.py --run-now --dry-run --instrument NQ
+# 查看日志（实时）
+ssh mac-studio "PATH=/opt/homebrew/bin:$PATH pm2 logs ib-bot --lines 50"
 
-# 实盘启动（后台运行，日志写文件）
-nohup python live_engine.py --port 7496 >> logs/live_$(date +%Y%m%d).log 2>&1 &
-
-# 查看日志
-tail -f logs/live_$(date +%Y%m%d).log
+# 重启引擎
+ssh mac-studio "PATH=/opt/homebrew/bin:$PATH pm2 restart ib-bot"
 
 # 停止引擎
-pkill -f live_engine.py
+ssh mac-studio "PATH=/opt/homebrew/bin:$PATH pm2 stop ib-bot"
+
+# 干跑测试（不下单，直接运行，绕过 pm2）
+ssh mac-studio "cd /Users/congrenhan/Documents/quantrift_index_future && /opt/homebrew/bin/python3.11 live_engine.py --port 4001 --run-now --dry-run"
+
+# 只测 NQ
+ssh mac-studio "cd /Users/congrenhan/Documents/quantrift_index_future && /opt/homebrew/bin/python3.11 live_engine.py --port 4001 --run-now --dry-run --instrument NQ"
 ```
 
 ---
@@ -120,14 +124,14 @@ pkill -f live_engine.py
 
 IB 服务器每天约 **23:00–23:45 ET** 重启，连接会断开。
 
-**临时方案**：维护后手动重启引擎：
-```bash
-pkill -f live_engine.py
-sleep 60
-nohup python live_engine.py --port 7496 >> logs/live_$(date +%Y%m%d).log 2>&1 &
-```
+**现在已全自动处理，无需手动干预：**
+- IB Gateway 设置了 **Auto-Restart ON**，维护后自动重启 Gateway
+- 引擎内 `do_connect()` 检测到 Error 1100/1101 后自动重连
+- pm2 负责引擎进程崩溃后自动拉起
+- launchd 负责 pm2 开机自启
 
-**自动方案（macOS launchd）**：后续可配置 plist 在维护后自动重启。
+**IB Gateway Auto-Restart 配置**：
+`Configure → Settings → Auto Restart → Enable`（每周日 1AM ET 重启一次，需手动重登录）
 
 ---
 
@@ -171,9 +175,9 @@ MNQ/MES 季度到期（3月、6月、9月、12月第三个周五）。
 ## 10. 紧急平仓
 
 如需立即平掉所有仓位：
-1. 在 TWS 中手动平仓（最快最安全）
+1. 在 IB Gateway / TWS 中手动平仓（最快最安全）
 2. 手动编辑 `live_state.json`，将所有 `signed_contracts` 改为 0
-3. 停止引擎：`pkill -f live_engine.py`
+3. 停止引擎：`ssh mac-studio "PATH=/opt/homebrew/bin:$PATH pm2 stop ib-bot"`
 
 ---
 
@@ -182,14 +186,22 @@ MNQ/MES 季度到期（3月、6月、9月、12月第三个周五）。
 ### 架构说明
 
 ```
-开发 Mac（公司机器）          GitHub              Mac Studio（24小时运行）
+开发 Mac（cohan）             GitHub              Mac Studio（24小时运行）
 ────────────────────────    ─────────────────   ──────────────────────────
-改代码 → git push ──────>   仓库（代码）──────>  git pull → 重启引擎
-Claude Code（远程管理）                           IB Gateway（一直开着）
-SSH via Cloudflare Tunnel ──────────────────>   live_engine.py（一直运行）
+改代码 → git push ──────>   仓库（代码）──────>  git pull → pm2 restart
+Claude Code（远程管理）                           IB Gateway（Auto-Restart ON）
+SSH via Cloudflare Tunnel ──────────────────>   pm2 → live_engine.py
+                                                  └─ reconnect loop（自动重连）
 ```
 
-**两台电脑不能同时跑引擎**：IB 账户只允许一个 TWS/IB Gateway 实例登录，第二台登录会把第一台踢下线，且两个引擎会产生重复订单。
+**守护层次（由外到内）：**
+1. launchd — 周日 15:00 PST 开市 / 周五 14:00 PST 收市
+2. pm2 — 引擎崩溃自动拉起，Mac Studio 重启后自动恢复
+3. `__main__` crash loop — `main()` 崩溃 30s 后重启
+4. `do_connect()` reconnect loop — 断线无限重试
+5. Error 1100/1101/2110 事件 — 提前触发重连
+
+**两台电脑不能同时跑引擎**：IB 账户只允许一个 Gateway 实例，第二台登录会把第一台踢下线。
 
 ---
 
@@ -350,95 +362,60 @@ ssh mac-studio "cd ~/confluence_backtest && python -c 'import backtesting, ib_in
 
 **开发 Mac 端（改完代码后）：**
 ```bash
-cd /Users/cohan/Documents/confluence_backtest
-git add strategy.py indicators.py live_engine.py config.yaml  # 明确指定，不要 git add .
+cd /Users/cohan/Documents/quantrift_index_future
+git add strategy.py indicators.py live_engine.py config.yaml
 git commit -m "调整参数: 4H min_score 改为 6"
-git push
+ssh -A mac-studio "cd /Users/congrenhan/Documents/quantrift_index_future && git pull"
 ```
 
-**Mac Studio 端（部署更新）：**
+**部署更新（pm2 管理）：**
 ```bash
-cd ~/confluence_backtest
+# 查看当前持仓（更新前确认）
+ssh mac-studio "cat /Users/congrenhan/Documents/quantrift_index_future/live_state.json"
 
-# 1. 拉取最新代码
-git pull origin main
-
-# 2. 查看当前持仓状态（更新前确认）
-cat live_state.json
-
-# 3. 停止当前引擎
-pkill -f live_engine.py
-echo "引擎已停止"
-
-# 4. 等待 5 秒确保干净退出
-sleep 5
-
-# 5. 重启引擎（实盘）
-nohup python live_engine.py --port 7496 >> logs/live_$(date +%Y%m%d).log 2>&1 &
-echo "引擎已重启，PID: $!"
+# 重启引擎（pm2 自动用新代码）
+ssh mac-studio "PATH=/opt/homebrew/bin:$PATH pm2 restart ib-bot"
 ```
 
 > ⚠️ **安全建议**：尽量在两个 Bar 收盘之间的空窗期更新，避免在信号即将触发时重启。
 
 ---
 
-### 第四步：Mac Studio 常驻配置
+### 第四步：Mac Studio 常驻配置（已完成）
 
-**开机自动启动 IB Gateway（macOS launchd）：**
+以下配置均已完成，无需重复操作：
 
-IB Gateway 本身支持设置为"开机自动登录"，在 IB Gateway 界面：
-`Configure → Settings → Auto Restart → Enable`
-
-**Cloudflare Tunnel 已配置为开机自启**（第零步已完成）：
-```bash
-sudo cloudflared service install  # 已执行过，无需重复
-```
-
-**引擎自动重启脚本（维护窗口后自动恢复）：**
-
-创建 `~/confluence_backtest/restart_engine.sh`：
-```bash
-#!/bin/bash
-cd ~/confluence_backtest
-pkill -f live_engine.py 2>/dev/null
-sleep 5
-nohup python live_engine.py --port 4001 >> logs/live_$(date +%Y%m%d).log 2>&1 &
-echo "$(date): 引擎已重启 PID=$!" >> logs/restart.log
-```
-
-设置每天 23:50 ET（IB 维护结束后）自动重启：
-```bash
-# crontab -e 添加
-50 23 * * * /bin/bash ~/confluence_backtest/restart_engine.sh
-```
+| 组件 | 配置文件 | 作用 |
+|------|---------|------|
+| IB Gateway Auto-Restart | IB Gateway GUI | 每周日 1AM ET 自动重启 |
+| Cloudflare Tunnel | `com.cloudflare.cloudflared`（launchd） | SSH 隧道开机自启 |
+| pm2 开机自启 | `~/Library/LaunchAgents/pm2.congrenhan.plist` | Mac Studio 重启后自动拉起 pm2 |
+| 引擎开市 | `~/Library/LaunchAgents/com.quantrift.start.plist` | 周日 15:00 PST 自动启动 |
+| 引擎收市 | `~/Library/LaunchAgents/com.quantrift.stop.plist` | 周五 14:00 PST 自动停止 |
 
 ---
 
-### 远程监控与管理（从开发 Mac 通过 Cloudflare Tunnel SSH）
+### 远程监控与管理
 
-所有命令在**开发 Mac** 上执行，通过 SSH 操作 Mac Studio：
+所有命令在**开发 Mac（cohan）** 上执行：
 
 ```bash
+# 查看引擎状态
+ssh mac-studio "PATH=/opt/homebrew/bin:$PATH pm2 status"
+
 # 查看实时日志
-ssh mac-studio "tail -f ~/confluence_backtest/logs/live_$(date +%Y%m%d).log"
+ssh mac-studio "PATH=/opt/homebrew/bin:$PATH pm2 logs ib-bot --lines 100"
 
-# 查看当前持仓状态
-ssh mac-studio "cat ~/confluence_backtest/live_state.json"
-
-# 查看引擎是否在运行
-ssh mac-studio "pgrep -a python"
-
-# 停止引擎
-ssh mac-studio "pkill -f live_engine.py"
+# 查看当前持仓
+ssh mac-studio "cat /Users/congrenhan/Documents/quantrift_index_future/live_state.json"
 
 # 重启引擎
-ssh mac-studio "cd ~/confluence_backtest && pkill -f live_engine.py; sleep 5; nohup python live_engine.py --port 4001 >> logs/live_\$(date +%Y%m%d).log 2>&1 &"
+ssh mac-studio "PATH=/opt/homebrew/bin:$PATH pm2 restart ib-bot"
+
+# 停止引擎
+ssh mac-studio "PATH=/opt/homebrew/bin:$PATH pm2 stop ib-bot"
 
 # 干跑测试（不下单）
-ssh mac-studio "cd ~/confluence_backtest && python live_engine.py --run-now --dry-run --port 4001"
+ssh mac-studio "cd /Users/congrenhan/Documents/quantrift_index_future && /opt/homebrew/bin/python3.11 live_engine.py --port 4001 --run-now --dry-run"
 ```
-
-**通过 Claude Code 管理（在开发 Mac 的 Claude 会话里）：**
-
-Claude Code 的 Bash 工具可以直接执行上面所有 SSH 命令，等同于远程控制 Mac Studio。例如在 Claude 会话里说"重启引擎"，Claude 就会执行对应的 SSH 命令。
 

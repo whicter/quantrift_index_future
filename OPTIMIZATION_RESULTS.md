@@ -152,3 +152,47 @@ pyenv exec python3 optimize_nq1h.py
 pyenv exec python3 optimize_nq4h1d.py --tf 4h
 pyenv exec python3 optimize_nq4h1d.py --tf 1d
 ```
+
+---
+
+# 后续优化结论（2026-06）
+
+## Staged TP（分批止盈）对比
+
+**优化日期**: 2026-06-13 | **工具**: `compare_staged_tp.py`
+**场景**：三周期全历史（2024-03 起，固定 $100k）
+
+| 模式 | 胜率 | 总 PnL | 收益率 |
+|------|------|--------|--------|
+| staged_tp=True | 56% | +$146k | +146% |
+| staged_tp=False | 45% | +$4.5k | +4.5% |
+
+**结论**：staged_tp=True 碾压 False，差距约 32 倍。**必须保持 True。**
+
+参数（config.yaml）：
+- `use_staged_tp: true`
+- `atr_tp1_mult: 1.0`（TP1 平掉 34% 仓位）
+- `atr_tp2_mult: 2.0`（TP2 平掉剩余）
+- `tp1_portion: 0.34`
+
+---
+
+## Pyramid 风险参数对比（1H risk_pct）
+
+**优化日期**: 2026-06-13 | **工具**: `compare_pyramid_risk.py`
+**场景**：净值 ≥ $60k 时的 pyramid 模式，三周期全历史（2024-03 起，固定 $100k）
+
+| 1H risk | 总 PnL | 收益率 |
+|---------|--------|--------|
+| 0.4%（旧）| +$146k | +146% |
+| 1.0%（新）| +$183k | +183% |
+
+**结论**：1H risk 从 0.4% 提升到 1.0% 收益增加约 25%，已更新至 config.yaml（commit dd39dc0）。
+
+当前 pyramid 参数（净值 ≥ $60k 时生效）：
+
+| 周期 | risk_pct_pyramid |
+|------|-----------------|
+| 1H | 1.0% |
+| 4H | 1.5% |
+| 1D | 4.5% |
