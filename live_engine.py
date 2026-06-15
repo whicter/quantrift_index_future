@@ -635,4 +635,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import time
+    while True:
+        try:
+            main()
+            break  # 正常退出（KeyboardInterrupt）则停止
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            log.error(f"💥 引擎崩溃: {e}，30秒后自动重启...")
+            time.sleep(30)
