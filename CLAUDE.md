@@ -1,5 +1,7 @@
 # quantrift_index_future — CLAUDE.md
 
+> **语言规则**：只用中文或英文回复，绝对不能出现韩语或其他语言。
+
 > Claude Code 在本机（cohan）运行，所有 IB/策略命令必须 SSH 到 Mac Studio 执行。
 
 ## 环境
