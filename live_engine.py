@@ -668,6 +668,22 @@ def main():
         ib.disconnect()
         return
 
+    def send_daily_recap():
+        """每天 16:05 ET 发一次复盘报告（1D Bar 收盘后）。"""
+        eq = get_account_equity(ib)
+        lines = [f"📊 每日复盘  {datetime.now(ET).strftime('%Y-%m-%d')}",
+                 f"账户净值: ${eq:,.2f}"]
+        for inst in active_instruments:
+            pos_parts = []
+            for tf in ["1h", "4h", "1d"]:
+                sc = state[inst][tf]["signed_contracts"]
+                if sc != 0:
+                    pos_parts.append(f"{tf}={'多' if sc>0 else '空'}{abs(sc)}手")
+            net = sum(state[inst][tf]["signed_contracts"] for tf in ["1h","4h","1d"])
+            pos_str = "  ".join(pos_parts) if pos_parts else "空仓"
+            lines.append(f"{inst}: {pos_str}  (净仓{net:+d}手)")
+        tg_alert("\n".join(lines))
+
     # ── 定时主循环 ───────────────────────────────────────────────────
     log.info("\n▶ 等待 Bar 收盘触发...\n")
     triggered: set = set()
@@ -695,6 +711,13 @@ def main():
                 now_et = datetime.now(ET)
                 if not is_market_open(now_et):
                     continue
+
+                # 每日复盘（16:05 ET）
+                if now_et.hour == 16 and now_et.minute == 5 and now_et.second <= 15:
+                    recap_key = f"recap-{now_et.strftime('%Y%m%d')}"
+                    if recap_key not in triggered:
+                        triggered.add(recap_key)
+                        send_daily_recap()
 
                 for tf in all_tfs:
                     if not is_bar_close(tf, now_et):
