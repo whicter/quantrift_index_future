@@ -183,6 +183,26 @@ def get_account_equity(ib: IB) -> float:
     return 25_000.0
 
 
+def reconcile_state(state: dict, inst: str, ib_pos: int) -> bool:
+    """以 IB 实际净仓为准，修正状态文件中该品种的仓位分布。
+    返回 True 表示做了修正。"""
+    tf_list = ["1h", "4h", "1d"]
+    st_pos = sum(state[inst][tf]["signed_contracts"] for tf in tf_list)
+    diff = ib_pos - st_pos
+    if diff == 0:
+        return False
+
+    if ib_pos == 0:
+        # IB 已空仓 → 全清，最安全的操作
+        for tf in tf_list:
+            state[inst][tf]["signed_contracts"] = 0
+    else:
+        # 找绝对值最大的 TF 吸收差额（该 TF 最可能是发生变化的那个）
+        largest_tf = max(tf_list, key=lambda tf: abs(state[inst][tf]["signed_contracts"]))
+        state[inst][largest_tf]["signed_contracts"] += diff
+    return True
+
+
 def get_contract(ib: IB, instrument: str):
     """获取指定品种的前月连续合约并 qualify。"""
     cfg = INSTRUMENTS[instrument]
@@ -557,15 +577,20 @@ def main():
                 equity = get_account_equity(ib)
                 contracts.update({inst: get_contract(ib, inst) for inst in active_instruments})
 
-                # 检查持仓一致性
+                # 检查并修正持仓一致性（以 IB 为准）
                 mismatch_lines = []
                 for inst in active_instruments:
                     ib_pos = get_ib_position(ib, inst)
                     st_pos = sum(state[inst][tf]["signed_contracts"] for tf in ["1h","4h","1d"])
                     if ib_pos != st_pos:
-                        msg = f"{inst} IB持仓: {ib_pos:+d}手  状态文件: {st_pos:+d}手  ⚠️ 不一致！"
-                        log.warning(f"  {msg}")
-                        mismatch_lines.append(msg)
+                        fixed = reconcile_state(state, inst, ib_pos)
+                        if fixed:
+                            save_state(state)
+                            new_dist = {tf: state[inst][tf]["signed_contracts"] for tf in ["1h","4h","1d"]}
+                            msg = (f"{inst} 持仓已强制对齐 IB 实际 {ib_pos:+d}手"
+                                   f"（原状态文件 {st_pos:+d}手，新分配: {new_dist}）")
+                            log.warning(f"  ⚠️ {msg}")
+                            mismatch_lines.append(msg)
                     else:
                         log.info(f"  {inst} IB持仓: {ib_pos:+d}手  状态文件: {st_pos:+d}手  ✅")
 
