@@ -250,19 +250,30 @@ def calc_n_contracts(equity: float, risk_pct: float,
 # 数据获取
 # ══════════════════════════════════════════════════════════════════════
 
-def fetch_bars(ib: IB, contract, tf: str) -> pd.DataFrame:
-    bars = ib.reqHistoricalData(
-        contract,
-        endDateTime="",
-        durationStr=DURATION_MAP[tf],
-        barSizeSetting=BAR_SIZE_MAP[tf],
-        whatToShow="TRADES",
-        useRTH=False,
-        formatDate=1,
-        keepUpToDate=False,
-    )
-    if not bars:
-        raise RuntimeError(f"IB 返回空数据 (tf={tf})")
+def fetch_bars(ib: IB, contract, tf: str, retries: int = 3) -> pd.DataFrame:
+    last_err = None
+    for attempt in range(1, retries + 1):
+        try:
+            bars = ib.reqHistoricalData(
+                contract,
+                endDateTime="",
+                durationStr=DURATION_MAP[tf],
+                barSizeSetting=BAR_SIZE_MAP[tf],
+                whatToShow="TRADES",
+                useRTH=False,
+                formatDate=1,
+                keepUpToDate=False,
+            )
+            if bars:
+                break
+            last_err = RuntimeError(f"IB 返回空数据 (tf={tf})")
+        except Exception as e:
+            last_err = e
+        log.warning(f"  数据拉取失败 attempt {attempt}/{retries}: {last_err}")
+        if attempt < retries:
+            ib.sleep(5)
+    else:
+        raise RuntimeError(f"数据拉取失败，触发重连: {last_err}") from last_err
 
     df = util.df(bars).rename(columns={
         "date": "Date", "open": "Open", "high": "High",
@@ -376,7 +387,7 @@ def process_tf(ib: IB, contract, instrument: str, tf: str,
         df = fetch_bars(ib, contract, tf)
     except Exception as e:
         log.error(f"  [{instrument}/{tf}] 数据拉取失败: {e}")
-        return
+        raise RuntimeError(f"数据拉取失败，触发重连: {e}") from e
 
     # 2. 计算指标，读取当前 ATR
     params = deepcopy(tf_params)
@@ -621,13 +632,23 @@ def main():
                 except Exception: pass
                 _time.sleep(10)
 
-    # Error 1100/1101/2110 → 触发重连
+    # Error 1100/1101/2110/2105 → 触发重连
     needs_reconnect = [False]
+    _last_reconnect_time = [0.0]
     def on_error(reqId, errorCode, errorString, contract):
         if errorCode in (1100, 1101, 2110):
             needs_reconnect[0] = True
             log.warning(f"⚠️  Error {errorCode}: IB连接异常，将触发重连")
             tg_alert(f"⚠️ IB 连接异常 (Error {errorCode})，正在重连...")
+        elif errorCode == 2105:
+            # HMDS ushmds 断连 → 立刻重连，有 60s 冷却防止循环
+            import time as _t
+            now = _t.time()
+            if now - _last_reconnect_time[0] > 60:
+                _last_reconnect_time[0] = now
+                needs_reconnect[0] = True
+                log.warning("⚠️  Error 2105: HMDS ushmds 断连，立刻触发重连")
+                tg_alert("⚠️ HMDS ushmds 断连，正在重连...")
     ib.errorEvent += on_error
 
     do_connect()
