@@ -630,8 +630,7 @@ def main():
             except Exception as exc:
                 log.error(f"  连接失败: {exc}，10秒后重试")
                 if not _conn_fail_alerted[0]:
-                    tg_alert(f"❌ IB Gateway 连接失败，持续重试中...
-{exc}")
+                    tg_alert(f"❌ IB Gateway 连接失败，持续重试中...\n{exc}")
                     _conn_fail_alerted[0] = True
                 try: ib.disconnect()
                 except Exception: pass
