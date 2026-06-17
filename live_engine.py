@@ -577,6 +577,7 @@ def main():
     def do_connect():
         """带重试的连接，连上后同步持仓/净值/合约"""
         nonlocal equity, contracts
+        _conn_fail_alerted = [False]
         while True:
             try:
                 if ib.isConnected():
@@ -628,6 +629,10 @@ def main():
                 return
             except Exception as exc:
                 log.error(f"  连接失败: {exc}，10秒后重试")
+                if not _conn_fail_alerted[0]:
+                    tg_alert(f"❌ IB Gateway 连接失败，持续重试中...
+{exc}")
+                    _conn_fail_alerted[0] = True
                 try: ib.disconnect()
                 except Exception: pass
                 _time.sleep(10)
