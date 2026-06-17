@@ -737,6 +737,18 @@ def main():
                 if not is_market_open(now_et):
                     continue
 
+                # 每小时心跳检查（整点后 30 秒内）
+                if now_et.minute == 0 and now_et.second <= 15:
+                    hb_key = f"hb-{now_et.strftime('%Y%m%d-%H')}"
+                    if hb_key not in triggered:
+                        triggered.add(hb_key)
+                        connected = ib.isConnected()
+                        net_pos = {inst: sum(state[inst][tf]["signed_contracts"] for tf in ["1h","4h","1d"]) for inst in active_instruments}
+                        pos_str = "  ".join(f"{inst}:{v:+d}手" for inst, v in net_pos.items())
+                        status = "OK" if connected else "DISCONNECTED"
+                        hb_msg = f"heart {now_et.strftime('%H:%M ET')} {status} pos={pos_str} equity={equity:.0f}"
+                        tg_alert(hb_msg)
+
                 # 每周复盘（周五 14:05 ET 收市时）
                 if now_et.weekday() == 4 and now_et.hour == 14 and now_et.minute == 5 and now_et.second <= 15:
                     recap_key = f"recap-{now_et.strftime('%Y%m%d')}"
