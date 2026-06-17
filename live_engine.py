@@ -746,7 +746,11 @@ def main():
                         net_pos = {inst: sum(state[inst][tf]["signed_contracts"] for tf in ["1h","4h","1d"]) for inst in active_instruments}
                         pos_str = "  ".join(f"{inst}:{v:+d}手" for inst, v in net_pos.items())
                         status = "OK" if connected else "DISCONNECTED"
-                        hb_msg = f"heart {now_et.strftime('%H:%M ET')} {status} pos={pos_str} equity={equity:.0f}"
+                        try:
+                            live_eq = get_account_equity(ib)
+                        except Exception:
+                            live_eq = equity
+                        hb_msg = f"heart {now_et.strftime('%H:%M ET')} {status} pos={pos_str} equity={live_eq:.0f}"
                         tg_alert(hb_msg)
 
                 # 每周复盘（周五 14:05 ET 收市时）
