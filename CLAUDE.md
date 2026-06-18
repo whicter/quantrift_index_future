@@ -120,6 +120,17 @@ IB Gateway 设置：Auto-Restart ON（每周日 1AM ET 自动重启）；Auto-Lo
 | `compare_pyramid_risk.py` | pyramid 风险参数对比 |
 | `pyramid_sizing.py` | 全历史复利回测（$100k/$200k 月度调仓） |
 
+## 最近实现（2026-06-17）
+
+**连接稳定性修复**：
+- `do_connect()` 连接失败立刻发 Telegram 告警（首次失败时，不重复刷屏）
+- Error 2105（HMDS ushmds 断连）加入重连触发列表，60s 冷却防止循环
+- `fetch_bars()` 加 3 次重试，失败后抛 `RuntimeError` 触发外层重连
+
+**每小时心跳 Telegram**：
+- 整点发送：连接状态 + 各品种净仓 + 账户净值
+- 确保系统异常能在 ≤1 小时内被发现
+
 ## 最近实现（2026-06-15）
 
 **Telegram 配置完成**：
@@ -146,61 +157,4 @@ IB Gateway 设置：Auto-Restart ON（每周日 1AM ET 自动重启）；Auto-Lo
 
 ## TODO
 
-### 0. ~~Telegram 配置~~（已完成 2026-06-15）
-
-bot `@quantrift_index_future_bot` 已配置并验证，config.yaml 中已填入 token/chat_id。
-
-### 1. IBC 自动登录（优先级：中）
-
-**目标**：彻底消除每周手动登录 IB Gateway 的需求。
-
-```bash
-# Mac Studio 上安装
-curl -L https://github.com/IbcAlpha/IBC/releases/latest/download/IBCMacos-3.x.x.zip -o IBC.zip
-unzip IBC.zip -d ~/IBC
-cp ~/IBC/config.ini.example ~/IBC/config.ini
-# 编辑 config.ini：填 IbLoginId、IbPassword、TradingMode=live
-```
-
-更新 `com.quantrift.start.plist` 改为用 IBC 启动 Gateway（替代手动启动）。
-
-### 3. Docker 化（优先级：低，稳定后再做）
-
-**第一步**：只 Docker 化 IB Gateway + IBC（使用 `ghcr.io/gnzsnz/ib-gateway:stable`）
-
-```bash
-docker run -d --name ib-gateway --restart always \
-  -p 4001:4001 -p 5900:5900 \
-  -e TWS_USERID=账号 -e TWS_PASSWORD=密码 \
-  -e TRADING_MODE=live \
-  ghcr.io/gnzsnz/ib-gateway:stable
-```
-
-**第二步**：bot 也 Docker 化，用 docker-compose 统一管理：
-
-```yaml
-services:
-  ib-gateway:
-    image: ghcr.io/gnzsnz/ib-gateway:stable
-    restart: always
-    environment:
-      TWS_USERID: "${IB_USER}"
-      TWS_PASSWORD: "${IB_PASSWORD}"
-      TRADING_MODE: live
-    ports:
-      - "4001:4001"
-      - "5900:5900"
-
-  bot:
-    build: .
-    restart: always
-    depends_on: [ib-gateway]
-    environment:
-      IB_HOST: ib-gateway
-      IB_PORT: 4001
-      TELEGRAM_TOKEN: "${TELEGRAM_TOKEN}"
-      TELEGRAM_CHAT_ID: "${TELEGRAM_CHAT_ID}"
-    volumes:
-      - ./live_state.json:/app/live_state.json
-      - ./logs:/app/logs
-```
+详见 `TASK.md`。
