@@ -628,10 +628,27 @@ def main():
                 tg_alert("\n".join(alert_parts))
                 return
             except Exception as exc:
+                now_ts = _time.time()
                 log.error(f"  连接失败: {exc}，10秒后重试")
                 if not _conn_fail_alerted[0]:
-                    tg_alert(f"❌ IB Gateway 连接失败，持续重试中...\n{exc}")
+                    tg_alert("⚠️ IB Gateway 未响应，持续重试中...\n如需重新登录请在手机 approve 2FA")
                     _conn_fail_alerted[0] = True
+                    _conn_fail_alerted.append(now_ts)  # index 1: 首次失败时间
+                    _conn_fail_alerted.append(0.0)     # index 2: 上次重启时间
+                # 每5分钟重启一次 Gateway
+                if len(_conn_fail_alerted) > 1:
+                    elapsed = now_ts - _conn_fail_alerted[1]
+                    since_restart = now_ts - _conn_fail_alerted[2]
+                    if elapsed > 300 and since_restart > 300:
+                        _conn_fail_alerted[2] = now_ts
+                        log.warning("连接失败超过5分钟，重启 IB Gateway...")
+                        tg_alert("⚠️ Gateway 连接超时，正在重启 Gateway，请手机 approve 2FA")
+                        import subprocess as _sp
+                        _sp.run(["pkill", "-f", "IB Gateway"], capture_output=True)
+                        _time.sleep(3)
+                        _sp.Popen(["/Users/congrenhan/IBC/gatewaystartmacos.sh", "-inline"],
+                                  stdout=open("/Users/congrenhan/IBC/logs/ibc-restart.log", "a"),
+                                  stderr=_sp.STDOUT)
                 try: ib.disconnect()
                 except Exception: pass
                 _time.sleep(10)
