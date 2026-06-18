@@ -644,7 +644,7 @@ def main():
                         log.warning("连接失败超过5分钟，重启 IB Gateway...")
                         tg_alert("⚠️ Gateway 连接超时，正在重启 Gateway，请手机 approve 2FA")
                         import subprocess as _sp
-                        for _sig in ["ibcstart.sh", "IbcGateway", "IB Gateway"]:
+                        for _sig in ["ibcstart.sh", "IbcGateway", "IB Gateway", "java.*config.ini"]:
                             _sp.run(["pkill", "-f", _sig], capture_output=True)
                         _time.sleep(3)
                         _sp.Popen(["/Users/congrenhan/IBC/gatewaystartmacos.sh", "-inline"],
