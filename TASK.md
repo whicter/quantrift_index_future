@@ -7,26 +7,11 @@
 | Telegram 配置（bot @quantrift_index_future_bot） | 2026-06-15 |
 | 连接稳定性修复（2105重连、fetch_bars重试、连接失败告警） | 2026-06-17 |
 | 每小时心跳 Telegram（状态 + 持仓 + 实时净值） | 2026-06-17 |
+| IBC 自动登录（Gateway 重启后自动填账号密码，免手动操作） | 2026-06-17 |
 
 ---
 
 ## 待办
-
-### 1. IBC 自动登录（优先级：中）
-
-**目标**：彻底消除每周手动登录 IB Gateway 的需求。
-
-```bash
-# Mac Studio 上安装
-curl -L https://github.com/IbcAlpha/IBC/releases/latest/download/IBCMacos-3.x.x.zip -o IBC.zip
-unzip IBC.zip -d ~/IBC
-cp ~/IBC/config.ini.example ~/IBC/config.ini
-# 编辑 config.ini：填 IbLoginId、IbPassword、TradingMode=live
-```
-
-更新 `com.quantrift.start.plist` 改为用 IBC 启动 Gateway（替代手动启动）。
-
----
 
 ### 2. open orders 处理（优先级：中）
 
