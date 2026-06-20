@@ -58,7 +58,7 @@ timeframes:
     tp1_portion: 0.34
     trend_filter_len: 200
     use_adx: true
-    use_atr_exit: false
+    # use_atr_exit: false  # 已废弃，staged_tp=True 时止损用 utTS
     use_bbmc_dir: true
     use_ci: false
     use_squeeze_mr: false

@@ -7,7 +7,7 @@ strategy.py — backtesting.py 策略类，完全复刻 Pine Script 状态机逻
      - 止损：收盘价穿越通道线（upperk / lowerk）
 
   B. 分批止盈模式（use_staged_tp=True）
-     - 硬止损：entry ∓ atr_sl_mult × ATR，全平并 waitReset
+     - 止损：utTS（UT Bot 动态追踪止损线）
      - TP1：entry ± atr_tp1_mult × ATR，平 tp1_portion（默认 1/3）
      - TP2：entry ± atr_tp2_mult × ATR，再平剩余仓位的 1/2（共 2/3）
      - 剩余 1/3：沿用 sslExit 跟踪出场（吃大趋势）
@@ -44,16 +44,15 @@ class ConfluenceStrategy(Strategy):
     rsi_mr_ob:            float = 65.0
     rsi_mr_os:            float = 35.0
 
-    # ── 方案二：固定 ATR 止盈止损（全仓，不分批）────────────────
-    use_atr_exit:         bool  = False
-    atr_tp_mult:          float = 2.0
-    atr_sl_mult:          float = 1.5
+    # ── 方案二：固定 ATR 止盈止损（全仓，不分批）── 未使用，已禁用 ──
+    # use_atr_exit:         bool  = False   # 始终 False，不生效
+    # atr_tp_mult:          float = 2.0
+    # atr_sl_mult:          float = 1.5     # staged_tp=True 时止损用 utTS，此参数无效
 
     # ── 分批止盈（use_staged_tp=True 时启用）────────────────────
     use_staged_tp:        bool  = False
     atr_tp1_mult:         float = 1.0   # 第一批止盈倍数
     atr_tp2_mult:         float = 2.0   # 第二批止盈倍数
-    # atr_sl_mult 共用（硬止损倍数）
     tp1_portion:          float = 0.34  # TP1 平仓比例（≈1/3）
 
     # ── 趋势过滤器 ────────────────────────────────────────────────
@@ -67,9 +66,6 @@ class ConfluenceStrategy(Strategy):
         self._wait_buy_reset  = False
         self._wait_sell_reset = False
         self._mr_mode         = False
-        self._pending_atr_set = False
-        self._was_long        = False
-        self._was_short       = False
         # 分批止盈状态
         self._stage      = 0    # 0=空仓, 1=满仓, 2=已平1/3, 3=已平2/3
         self._entry_price = 0.0
@@ -244,34 +240,8 @@ class ConfluenceStrategy(Strategy):
             elif self.position.is_short:
                 mr_exit_short = (sqz_val_prev < 0 and sqz_val >= 0) or sqz_off
 
-        # ── 方案二：ATR 止盈止损（backtesting.py 自动执行）────────
-        if self.use_atr_exit:
-            if self._pending_atr_set and self.trades:
-                for t in self.trades:
-                    ep = t.entry_price
-                    if t.size > 0:
-                        t.sl = ep - self.atr_sl_mult * atr_val
-                        t.tp = ep + self.atr_tp_mult * atr_val
-                    else:
-                        t.sl = ep + self.atr_sl_mult * atr_val
-                        t.tp = ep - self.atr_tp_mult * atr_val
-                self._pending_atr_set = False
-            if self._was_long and not self.position.is_long:
-                closed = self._broker.closed_trades
-                if closed and closed[-1].size > 0 and closed[-1].pl < 0:
-                    self._wait_buy_reset = True
-            if self._was_short and not self.position.is_short:
-                closed = self._broker.closed_trades
-                if closed and closed[-1].size < 0 and closed[-1].pl < 0:
-                    self._wait_sell_reset = True
-
-        self._was_long  = self.position.is_long
-        self._was_short = self.position.is_short
-
         # ── 趋势出场信号 ──────────────────────────────────────────
-        if self.use_atr_exit:
-            tp_long = tp_short = sl_long = sl_short = False
-        elif not self._mr_mode:
+        if not self._mr_mode:
             tp_long  = (self.position.is_long
                         and close_prev > ssl_exit_prev and close <= ssl_exit)
             tp_short = (self.position.is_short
@@ -362,14 +332,10 @@ class ConfluenceStrategy(Strategy):
 
         if trigger_buy:
             self._mr_mode = False
-            if self.use_atr_exit:
-                self._pending_atr_set = True
             self._open_long()
             return
         elif trigger_sell:
             self._mr_mode = False
-            if self.use_atr_exit:
-                self._pending_atr_set = True
             self._open_short()
             return
 

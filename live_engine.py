@@ -11,7 +11,7 @@ live_engine.py — NQ + ES 多周期模拟盘/实盘执行引擎
 
 仓位大小（动态计算）：
   每笔信号风险 = 账户净值 × risk_pct%
-  手数 = 风险金额 / (ATR × atr_sl_mult × 合约乘数)
+  手数 = 风险金额 / (ATR × 1.5 × 合约乘数)  # 止损距离用 ATR×1.5 估算仓位，实际止损为 utTS 动态线
 
 用法：
   python live_engine.py                        # 模拟盘，NQ+ES，等 Bar 收盘
@@ -320,8 +320,9 @@ def _set_strategy_params(params: dict, n_contracts: int, multiplier: int):
     _CaptureStrategy.use_squeeze_mr      = bool(params.get("use_squeeze_mr", False))
     _CaptureStrategy.rsi_mr_ob           = float(params.get("rsi_mr_ob", 65.0))
     _CaptureStrategy.rsi_mr_os           = float(params.get("rsi_mr_os", 35.0))
-    _CaptureStrategy.use_atr_exit        = bool(params.get("use_atr_exit", False))
-    _CaptureStrategy.atr_sl_mult         = float(params.get("atr_sl_mult", 1.5))
+    # use_atr_exit / atr_sl_mult 已废弃：staged_tp=True 时止损用 utTS，以下两行无效
+    # _CaptureStrategy.use_atr_exit        = bool(params.get("use_atr_exit", False))
+    # _CaptureStrategy.atr_sl_mult         = float(params.get("atr_sl_mult", 1.5))
     _CaptureStrategy.use_trend_filter    = bool(params.get("use_trend_filter", False))
     _CaptureStrategy.n_contracts         = n_contracts
     _CaptureStrategy.contract_size       = multiplier
