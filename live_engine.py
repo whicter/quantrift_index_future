@@ -694,20 +694,17 @@ def main():
         return
 
     def send_daily_recap():
-        """每周五收市（14:05 ET）发一次周度复盘报告。"""
-        eq = get_account_equity(ib)
-        lines = [f"📊 周度复盘  {datetime.now(ET).strftime('%Y-%m-%d')}",
-                 f"账户净值: ${eq:,.2f}"]
-        for inst in active_instruments:
-            pos_parts = []
-            for tf in ["1h", "4h", "1d"]:
-                sc = state[inst][tf]["signed_contracts"]
-                if sc != 0:
-                    pos_parts.append(f"{tf}={'多' if sc>0 else '空'}{abs(sc)}手")
-            net = sum(state[inst][tf]["signed_contracts"] for tf in ["1h","4h","1d"])
-            pos_str = "  ".join(pos_parts) if pos_parts else "空仓"
-            lines.append(f"{inst}: {pos_str}  (净仓{net:+d}手)")
-        tg_alert("\n".join(lines))
+        """每周五收市（14:05 ET）调用 weekly_review.py 发送完整复盘报告。"""
+        import subprocess as _sp, sys as _sys
+        review_script = Path(__file__).parent / "weekly_review.py"
+        tg_token   = _TG.get("token", "")
+        tg_chat_id = _TG.get("chat_id", "")
+        env = {**__import__("os").environ,
+               "TG_TOKEN": tg_token, "TG_CHAT_ID": tg_chat_id}
+        _sp.Popen(
+            [_sys.executable, str(review_script), f"--port={args.port}", "--send"],
+            env=env,
+        )
 
     # ── 定时主循环 ───────────────────────────────────────────────────
     log.info("\n▶ 等待 Bar 收盘触发...\n")
