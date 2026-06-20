@@ -347,7 +347,24 @@ def _stage_to_contracts(stage: int, n_contracts: int, tp1_portion: float) -> int
 # 下单
 # ══════════════════════════════════════════════════════════════════════
 
-def place_order(ib: IB, contract, delta: int, dry_run: bool = False):
+TRADES_CSV = LOG_DIR / "trades.csv"
+
+
+def _log_trade(action: str, qty: int, sym: str, fill_price, instrument: str, tf: str):
+    """追加一行到 trades.csv，静默失败，不影响交易逻辑。"""
+    try:
+        write_header = not TRADES_CSV.exists()
+        with open(TRADES_CSV, "a") as f:
+            if write_header:
+                f.write("time,instrument,tf,action,qty,price\n")
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            f.write(f"{ts},{instrument},{tf},{action},{qty},{fill_price}\n")
+    except Exception:
+        pass
+
+
+def place_order(ib: IB, contract, delta: int, dry_run: bool = False,
+                instrument: str = "", tf: str = ""):
     if delta == 0:
         return
     action = "BUY" if delta > 0 else "SELL"
@@ -366,6 +383,7 @@ def place_order(ib: IB, contract, delta: int, dry_run: bool = False):
              f"状态: {trade.orderStatus.status}  "
              f"成交均价: {fill_price}")
     tg_alert(f"✅ 下单成功: {action} {qty} {sym} @ {fill_price}")
+    _log_trade(action, qty, sym, fill_price, instrument, tf)
     return trade
 
 
@@ -475,7 +493,7 @@ def process_tf(ib: IB, contract, instrument: str, tf: str,
 
     # 6. 下单
     if delta != 0:
-        place_order(ib, contract, delta, dry_run=dry_run)
+        place_order(ib, contract, delta, dry_run=dry_run, instrument=instrument, tf=tf)
         if not dry_run:
             inst_state[tf]["signed_contracts"] = new_signed
             inst_state[tf]["last_update"]      = datetime.now(ET).isoformat()
