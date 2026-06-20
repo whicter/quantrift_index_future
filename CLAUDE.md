@@ -107,6 +107,14 @@ IB Gateway 设置：Auto-Restart ON（每周日 1AM ET 自动重启）；Auto-Lo
 - `staged_tp=True` vs False：True 碾压（+146% vs +4.5%），必须保持
 - Pyramid 1h 0.4%→1.0%：全历史 $100k 从 +$146k→+$183k（commit dd39dc0）
 
+**NQ 1h 参数优化结论（2026-06-20）**：
+- ADX threshold：20 / 25 / 30 三档对比，**ADX=30 最优**（Sharpe 0.80，MaxDD -2.7%），不要降低
+- TP 目标（atr_tp1_mult / atr_tp2_mult）：放大 TP 目标会降低胜率，Sharpe 反而下降，**保持 ×1.0 / ×2.0**
+- tp1_portion：对回测结果无影响（n_contracts=1 时分批平仓整数取整为 0），**保持 34%**
+- ut_key：1.0→3.0 虽然胜率和总收益提升，但 MaxDD 翻倍（-5.6%），**保持 ut_key=1.0**
+- **结论：当前参数已是最优，不改任何参数**
+- 当前 Sharpe=0.80，胜率 62.1%，Profit Factor 2.44，MaxDD -2.7%
+
 ## 分析工具
 
 均支持 `--since` / `--config` 参数，在 `/tmp/` 目录下：
@@ -119,6 +127,27 @@ IB Gateway 设置：Auto-Restart ON（每周日 1AM ET 自动重启）；Auto-Lo
 | `compare_staged_tp.py` | staged_tp True/False 三场景对比 |
 | `compare_pyramid_risk.py` | pyramid 风险参数对比 |
 | `pyramid_sizing.py` | 全历史复利回测（$100k/$200k 月度调仓） |
+
+## 最近实现（2026-06-20）
+
+**死代码清理**（commit 52fd766）：
+- `use_atr_exit` / `atr_sl_mult` / `atr_tp_mult` 在 `staged_tp=True` 模式下完全无效
+- `staged_tp=True` 时止损走 `utTS`（UT Bot 动态追踪线），固定 ATR 止损路径从未执行
+- 已注释掉 `strategy.py` 中的相关类变量和所有 `if self.use_atr_exit:` 块
+- `live_engine.py` 中注释掉 `_CaptureStrategy.use_atr_exit` / `.atr_sl_mult` 赋值
+- `atr_sl_mult` 在 `live_engine.py` 中仍用于仓位大小计算（`calc_n_contracts`），保留
+
+**实盘交易日志**（commit 3eb7ee5）：
+- 每次实盘成交自动追加一行到 `logs/trades.csv`
+- 格式：`time,instrument,tf,action,qty,price`
+- 纯旁路，静默失败，不影响任何交易逻辑
+
+**weekly_review.py**（standalone 复盘脚本）：
+- 每周五 14:05 ET 自动触发，连接 IB 拉历史数据，运行回测，提取近 7 天成交
+- 合并 staged TP 拆分记录（同 EntryTime + 方向 → 一笔），正确计算胜率
+- 检测 near-miss（bull 够但 ADX 拦截、bull 差 1 分）
+- 自动生成优化建议（如多次 ADX 拦截则建议回测降低阈值）
+- 用法：`python weekly_review.py --port 4001 --send`
 
 ## 最近实现（2026-06-17）
 
