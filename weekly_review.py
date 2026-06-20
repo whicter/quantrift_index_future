@@ -105,14 +105,39 @@ def run_backtest(df_sig: pd.DataFrame, params: dict, n: int, multiplier: int):
     return trades_df
 
 
-# ── 近一周交易过滤 ────────────────────────────────────────────────────
+# ── 近一周交易过滤 & 合并 staged TP ─────────────────────────────────
 
 def recent_trades(trades_df, days: int = 7) -> pd.DataFrame:
+    """
+    过滤近 N 天的交易，并将 staged TP 拆分出的多条记录合并为一笔。
+    判断依据：同一 EntryTime + 同一方向（Size 正负相同）→ 合并为一笔。
+    合并后：PnL 求和，ExitTime 取最后一条，EntryPrice/ExitPrice 保留第一条。
+    """
     if trades_df is None or trades_df.empty:
         return pd.DataFrame()
     cutoff = datetime.now() - timedelta(days=days)
-    mask = pd.to_datetime(trades_df["ExitTime"]) >= cutoff
-    return trades_df[mask].copy()
+    df = trades_df.copy()
+    df["EntryTime"] = pd.to_datetime(df["EntryTime"])
+    df["ExitTime"]  = pd.to_datetime(df["ExitTime"])
+    df = df[df["ExitTime"] >= cutoff]
+    if df.empty:
+        return df
+
+    # 合并同一 EntryTime + 方向的多条记录（staged TP 产生的）
+    df["_side"] = df["Size"].apply(lambda x: 1 if x > 0 else -1)
+    groups = []
+    for (entry_t, side), grp in df.groupby(["EntryTime", "_side"], sort=False):
+        merged = {
+            "EntryTime":  entry_t,
+            "ExitTime":   grp["ExitTime"].max(),
+            "EntryPrice": grp["EntryPrice"].iloc[0],
+            "ExitPrice":  grp["ExitPrice"].iloc[-1],
+            "Size":       grp["Size"].iloc[0],
+            "PnL":        grp["PnL"].sum(),
+        }
+        groups.append(merged)
+
+    return pd.DataFrame(groups).sort_values("EntryTime").reset_index(drop=True)
 
 
 # ── 错过机会检测 ──────────────────────────────────────────────────────
