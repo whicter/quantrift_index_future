@@ -59,8 +59,9 @@ class ConfluenceStrategy(Strategy):
     use_trend_filter:     bool  = False
 
     # ── Pattern + 背离提前止盈 ────────────────────────────────────
-    use_pattern_exit:     bool  = True
-    pattern_exit_score:   int   = 2   # 至少几个信号共振才触发提前止盈
+    use_pattern_exit:      bool  = True
+    pattern_exit_score:    int   = 2   # 至少几个信号共振才触发提前止盈
+    use_pattern_long_exit: bool  = False  # 顶背离/射击之星/双顶 → 多头提前止盈
 
     # ── Pattern 抄底做多入场 ──────────────────────────────────────
     use_pattern_entry:    bool  = False
@@ -178,13 +179,21 @@ class ConfluenceStrategy(Strategy):
                     self._wait_sell_reset = True
                 return
 
-            # ① bis Pattern 提前止盈（仅空头：底背离 + 形态共振 → 止盈）
-            # 多头不干预——让趋势跑，顶背离假阳性太多（单边牛市）
-            if self.use_pattern_exit and d == -1:
+            # ① bis Pattern 提前止盈
+            if self.use_pattern_exit and d == -1:   # 空头：底部信号 → 止盈
                 score = (int(bool(self.data.smi_bull_div[-1])) +
                          int(bool(self.data.rsi_bull_div[-1])) +
                          int(bool(self.data.pin_bar_bull[-1])) +
                          int(bool(self.data.double_bottom[-1])))
+                if score >= self.pattern_exit_score:
+                    self.position.close()
+                    self._reset_stage()
+                    return
+            if self.use_pattern_long_exit and d == 1:   # 多头：顶部信号 → 止盈
+                score = (int(bool(self.data.smi_bear_div[-1])) +
+                         int(bool(self.data.rsi_bear_div[-1])) +
+                         int(bool(self.data.pin_bar_bear[-1])) +
+                         int(bool(self.data.double_top[-1])))
                 if score >= self.pattern_exit_score:
                     self.position.close()
                     self._reset_stage()
