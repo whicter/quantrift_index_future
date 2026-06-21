@@ -62,6 +62,10 @@ class ConfluenceStrategy(Strategy):
     use_pattern_exit:     bool  = True
     pattern_exit_score:   int   = 2   # 至少几个信号共振才触发提前止盈
 
+    # ── Pattern 抄底做多入场 ──────────────────────────────────────
+    use_pattern_entry:    bool  = False
+    pattern_entry_score:  int   = 2   # 至少几个底部信号才触发抄底
+
     # ── 期货合约设置 ──────────────────────────────────────────────
     n_contracts:          int   = 0    # 0=全仓，>0=固定合约数
     contract_size:        int   = 2    # MNQ=$2/点，NQ=$20/点
@@ -354,6 +358,17 @@ class ConfluenceStrategy(Strategy):
             self._mr_mode = False
             self._open_short()
             return
+
+        # ── Pattern 抄底做多入场 ──────────────────────────────────
+        if self.use_pattern_entry and not self._wait_buy_reset and not is_choppy:
+            pat_score = (int(bool(self.data.smi_bull_div[-1])) +
+                         int(bool(self.data.rsi_bull_div[-1])) +
+                         int(bool(self.data.pin_bar_bull[-1])) +
+                         int(bool(self.data.double_bottom[-1])))
+            if pat_score >= self.pattern_entry_score:
+                self._mr_mode = False
+                self._open_long()
+                return
 
         # ── Squeeze 均值回归入场 ───────────────────────────────────
         if not self.use_squeeze_mr:
