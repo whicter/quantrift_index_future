@@ -174,18 +174,13 @@ class ConfluenceStrategy(Strategy):
                     self._wait_sell_reset = True
                 return
 
-            # ① bis Pattern 提前止盈（背离 + 形态共振）
-            if self.use_pattern_exit:
-                if d == 1:   # 多仓：看顶背离 / 反转形态
-                    score = (int(bool(self.data.smi_bear_div[-1])) +
-                             int(bool(self.data.rsi_bear_div[-1])) +
-                             int(bool(self.data.pin_bar_bear[-1])) +
-                             int(bool(self.data.double_top[-1])))
-                else:        # 空仓：看底背离 / 反转形态
-                    score = (int(bool(self.data.smi_bull_div[-1])) +
-                             int(bool(self.data.rsi_bull_div[-1])) +
-                             int(bool(self.data.pin_bar_bull[-1])) +
-                             int(bool(self.data.double_bottom[-1])))
+            # ① bis Pattern 提前止盈（仅空头：底背离 + 形态共振 → 止盈）
+            # 多头不干预——让趋势跑，顶背离假阳性太多（单边牛市）
+            if self.use_pattern_exit and d == -1:
+                score = (int(bool(self.data.smi_bull_div[-1])) +
+                         int(bool(self.data.rsi_bull_div[-1])) +
+                         int(bool(self.data.pin_bar_bull[-1])) +
+                         int(bool(self.data.double_bottom[-1])))
                 if score >= self.pattern_exit_score:
                     self.position.close()
                     self._reset_stage()
