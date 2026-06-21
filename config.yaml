@@ -158,7 +158,7 @@ timeframes:
     ut_key: 3.0
     vol_len: 20
     vol_mult: 1.0
-    use_pattern_exit: true
+    use_pattern_exit: false  # 1D空头持仓时间长，熊市中底部信号假阳性多，不适合提前止盈
     pattern_exit_score: 2
     divergence_lookback: 5
     pin_wick_ratio: 1.5
