@@ -44,6 +44,12 @@ es_timeframes:
     ut_key: 2.8996
     vol_len: 20
     vol_mult: 1.0
+    use_pattern_exit: true
+    pattern_exit_score: 2
+    divergence_lookback: 5
+    pin_wick_ratio: 1.5
+    double_bottom_lookback: 20
+    double_bottom_atr_tol: 0.5
   4h:
     adx_len: 14
     adx_threshold: 28.1735
@@ -87,6 +93,12 @@ es_timeframes:
     ut_key: 5.0
     vol_len: 20
     vol_mult: 1.0
+    use_pattern_exit: true
+    pattern_exit_score: 2
+    divergence_lookback: 5
+    pin_wick_ratio: 1.5
+    double_bottom_lookback: 20
+    double_bottom_atr_tol: 0.5
 min_trades: 20
 optimize_for: Sharpe Ratio
 risk_pct: 1.0
@@ -146,6 +158,12 @@ timeframes:
     ut_key: 3.0
     vol_len: 20
     vol_mult: 1.0
+    use_pattern_exit: true
+    pattern_exit_score: 2
+    divergence_lookback: 5
+    pin_wick_ratio: 1.5
+    double_bottom_lookback: 20
+    double_bottom_atr_tol: 0.5
   1h:
     adx_len: 14
     adx_threshold: 30.0
@@ -195,6 +213,12 @@ timeframes:
     ut_key: 1.0
     vol_len: 20
     vol_mult: 1.0
+    use_pattern_exit: true
+    pattern_exit_score: 2
+    divergence_lookback: 5
+    pin_wick_ratio: 1.5
+    double_bottom_lookback: 20
+    double_bottom_atr_tol: 0.5
   4h:
     adx_len: 14
     adx_threshold: 30.0
@@ -245,3 +269,9 @@ timeframes:
     ut_key: 5.0
     vol_len: 20
     vol_mult: 1.0
+    use_pattern_exit: true
+    pattern_exit_score: 2
+    divergence_lookback: 5
+    pin_wick_ratio: 1.5
+    double_bottom_lookback: 20
+    double_bottom_atr_tol: 0.5

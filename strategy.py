@@ -58,6 +58,10 @@ class ConfluenceStrategy(Strategy):
     # ── 趋势过滤器 ────────────────────────────────────────────────
     use_trend_filter:     bool  = False
 
+    # ── Pattern + 背离提前止盈 ────────────────────────────────────
+    use_pattern_exit:     bool  = True
+    pattern_exit_score:   int   = 2   # 至少几个信号共振才触发提前止盈
+
     # ── 期货合约设置 ──────────────────────────────────────────────
     n_contracts:          int   = 0    # 0=全仓，>0=固定合约数
     contract_size:        int   = 2    # MNQ=$2/点，NQ=$20/点
@@ -169,6 +173,23 @@ class ConfluenceStrategy(Strategy):
                 else:
                     self._wait_sell_reset = True
                 return
+
+            # ① bis Pattern 提前止盈（背离 + 形态共振）
+            if self.use_pattern_exit:
+                if d == 1:   # 多仓：看顶背离 / 反转形态
+                    score = (int(bool(self.data.smi_bear_div[-1])) +
+                             int(bool(self.data.rsi_bear_div[-1])) +
+                             int(bool(self.data.pin_bar_bear[-1])) +
+                             int(bool(self.data.double_top[-1])))
+                else:        # 空仓：看底背离 / 反转形态
+                    score = (int(bool(self.data.smi_bull_div[-1])) +
+                             int(bool(self.data.rsi_bull_div[-1])) +
+                             int(bool(self.data.pin_bar_bull[-1])) +
+                             int(bool(self.data.double_bottom[-1])))
+                if score >= self.pattern_exit_score:
+                    self.position.close()
+                    self._reset_stage()
+                    return
 
             # ② TP1：平 tp1_portion（≈1/3）
             if self._stage == 1:

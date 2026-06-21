@@ -310,6 +310,175 @@ def _cd_divergence(close: pd.Series, diff: pd.Series, c_macd: pd.Series):
 
 
 # ══════════════════════════════════════════════════════════
+# Pattern + 背离检测
+# ══════════════════════════════════════════════════════════
+
+def _smi_divergence(close: pd.Series, sqz_val: pd.Series,
+                    lookback: int = 5):
+    """
+    SMI 底背离 / 顶背离（基于 Squeeze Momentum 动量柱）
+    底背离：价格在窗口内创新低，但 sqzVal 当前值（负区间）高于窗口内最低值
+    顶背离：价格在窗口内创新高，但 sqzVal 当前值（正区间）低于窗口内最高值
+    """
+    n = len(close)
+    c = close.values
+    sq = sqz_val.values
+
+    bull = np.zeros(n, dtype=bool)
+    bear = np.zeros(n, dtype=bool)
+
+    for i in range(lookback, n):
+        if np.isnan(sq[i]):
+            continue
+        ws = i - lookback
+        c_win  = c[ws: i + 1]
+        sq_win = sq[ws: i]     # 不含当前 bar，用于历史极值对比
+
+        if len(sq_win) == 0 or np.all(np.isnan(sq_win)):
+            continue
+
+        c_min = np.nanmin(c_win)
+        c_max = np.nanmax(c_win)
+        sq_min = np.nanmin(sq_win)
+        sq_max = np.nanmax(sq_win)
+
+        # 底背离：当前价格接近 N-bar 低点，sqzVal 在负区间但高于历史最低
+        if (c[i] <= c_min * 1.005          # 价格在低位（容忍 0.5%）
+                and sq[i] < 0              # SMI 在负区间（下行动量）
+                and sq[i] > sq_min):       # 但动量在收缩（不创新低）
+            bull[i] = True
+
+        # 顶背离：当前价格接近 N-bar 高点，sqzVal 在正区间但低于历史最高
+        if (c[i] >= c_max * 0.995          # 价格在高位
+                and sq[i] > 0              # SMI 在正区间（上行动量）
+                and sq[i] < sq_max):       # 但动量在衰减（不创新高）
+            bear[i] = True
+
+    return pd.Series(bull, index=close.index), pd.Series(bear, index=close.index)
+
+
+def _rsi_divergence(close: pd.Series, rsi_val: pd.Series,
+                    lookback: int = 5):
+    """
+    RSI 底背离 / 顶背离
+    底背离：价格创新低，RSI < 45 但高于窗口内 RSI 最低值
+    顶背离：价格创新高，RSI > 55 但低于窗口内 RSI 最高值
+    """
+    n = len(close)
+    c = close.values
+    r = rsi_val.values
+
+    bull = np.zeros(n, dtype=bool)
+    bear = np.zeros(n, dtype=bool)
+
+    for i in range(lookback, n):
+        if np.isnan(r[i]):
+            continue
+        ws = i - lookback
+        c_win = c[ws: i + 1]
+        r_win = r[ws: i]
+
+        if len(r_win) == 0 or np.all(np.isnan(r_win)):
+            continue
+
+        c_min = np.nanmin(c_win)
+        c_max = np.nanmax(c_win)
+        r_min = np.nanmin(r_win)
+        r_max = np.nanmax(r_win)
+
+        if (c[i] <= c_min * 1.005
+                and r[i] < 45          # RSI 在超卖偏低区间
+                and r[i] > r_min):     # 但不创 RSI 新低 = 底背离
+            bull[i] = True
+
+        if (c[i] >= c_max * 0.995
+                and r[i] > 55          # RSI 在超买偏高区间
+                and r[i] < r_max):     # 但不创 RSI 新高 = 顶背离
+            bear[i] = True
+
+    return pd.Series(bull, index=close.index), pd.Series(bear, index=close.index)
+
+
+def _pin_bar(high: pd.Series, low: pd.Series,
+             open_: pd.Series, close: pd.Series,
+             wick_ratio: float = 1.5):
+    """
+    锤子线（看涨 pin bar）/ 射击之星（看跌 pin bar）
+    锤子线：下影线 > 实体 × ratio 且下影线 > 上影线 × ratio
+    射击之星：上影线 > 实体 × ratio 且上影线 > 下影线 × ratio
+    """
+    body        = (close - open_).abs()
+    lower_wick  = pd.concat([open_, close], axis=1).min(axis=1) - low
+    upper_wick  = high - pd.concat([open_, close], axis=1).max(axis=1)
+
+    lower_wick  = lower_wick.clip(lower=0)
+    upper_wick  = upper_wick.clip(lower=0)
+
+    pin_bull = ((lower_wick > body * wick_ratio) &
+                (lower_wick > upper_wick * wick_ratio))
+    pin_bear = ((upper_wick > body * wick_ratio) &
+                (upper_wick > lower_wick * wick_ratio))
+
+    return pin_bull.fillna(False), pin_bear.fillna(False)
+
+
+def _double_bottom(close: pd.Series, low: pd.Series, high: pd.Series,
+                   atr: pd.Series, lookback: int = 20, tol_atr: float = 0.5):
+    """
+    双底形态（底部两次测试相近低点 + 中间有明显反弹）
+    双顶形态（顶部两次测试相近高点 + 中间有明显回调）
+    """
+    n = len(close)
+    l_arr = low.values
+    h_arr = high.values
+    c_arr = close.values
+    a_arr = atr.values
+
+    bull = np.zeros(n, dtype=bool)
+    bear = np.zeros(n, dtype=bool)
+
+    for i in range(lookback + 3, n):
+        if np.isnan(a_arr[i]) or a_arr[i] <= 0:
+            continue
+        tol = a_arr[i] * tol_atr
+        ws  = i - lookback
+
+        cur_low   = l_arr[i]
+        cur_close = c_arr[i]
+        cur_high  = h_arr[i]
+
+        # 当前 bar 必须接近区间低点（双底）
+        win_low = np.nanmin(l_arr[ws:i])
+        if cur_low > win_low + tol:
+            goto_top = True
+        else:
+            goto_top = False
+            # 在窗口内找价格接近的前一个低点
+            for j in range(ws, i - 3):
+                if abs(l_arr[j] - cur_low) <= tol:
+                    # 两低点之间有明显反弹
+                    between_max = np.nanmax(h_arr[j: i])
+                    if between_max - max(l_arr[j], cur_low) > tol * 2:
+                        # 当前 bar 收盘需在低点上方（确认反转）
+                        if cur_close > cur_low + tol * 0.5:
+                            bull[i] = True
+                            break
+
+        # 双顶：当前 bar 接近区间高点
+        win_high = np.nanmax(h_arr[ws:i])
+        if cur_high >= win_high - tol:
+            for j in range(ws, i - 3):
+                if abs(h_arr[j] - cur_high) <= tol:
+                    between_min = np.nanmin(l_arr[j: i])
+                    if max(h_arr[j], cur_high) - between_min > tol * 2:
+                        if cur_close < cur_high - tol * 0.5:
+                            bear[i] = True
+                            break
+
+    return pd.Series(bull, index=close.index), pd.Series(bear, index=close.index)
+
+
+# ══════════════════════════════════════════════════════════
 # 主入口：计算所有信号
 # ══════════════════════════════════════════════════════════
 
@@ -473,5 +642,25 @@ def compute_signals(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     result["b5_SQZ"]   = b5.astype(float)
     result["b6_CD"]    = b6.astype(float)
     result["utTS"]     = utTS   # UT Bot 动态追踪止损线
+
+    # ── Pattern + 背离信号 ─────────────────────────────────────────
+    div_lb    = int(params.get('divergence_lookback', 5))
+    pin_ratio = float(params.get('pin_wick_ratio', 1.5))
+    db_lb     = int(params.get('double_bottom_lookback', 20))
+    db_tol    = float(params.get('double_bottom_atr_tol', 0.5))
+
+    smi_bull_div, smi_bear_div = _smi_divergence(close, sqzVal, div_lb)
+    rsi_bull_div, rsi_bear_div = _rsi_divergence(close, rsiVal, div_lb)
+    pin_bar_bull, pin_bar_bear = _pin_bar(high, low, df['Open'], close, pin_ratio)
+    double_bottom, double_top  = _double_bottom(close, low, high, atr14, db_lb, db_tol)
+
+    result['smi_bull_div']  = smi_bull_div.astype(float)
+    result['smi_bear_div']  = smi_bear_div.astype(float)
+    result['rsi_bull_div']  = rsi_bull_div.astype(float)
+    result['rsi_bear_div']  = rsi_bear_div.astype(float)
+    result['pin_bar_bull']  = pin_bar_bull.astype(float)
+    result['pin_bar_bear']  = pin_bar_bear.astype(float)
+    result['double_bottom'] = double_bottom.astype(float)
+    result['double_top']    = double_top.astype(float)
 
     return result
