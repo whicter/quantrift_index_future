@@ -57,15 +57,18 @@ cd /Users/cohan/Documents/quantrift_index_future && git pull origin master
 
 ## 策略架构
 
-- **核心文件**：`live_engine.py`（实盘引擎）、`strategy.py`（ConfluenceStrategy）、`indicators.py`（compute_signals）、`config.yaml`（参数）
+### 系统一：趋势引擎（ib-bot，clientId=20）
+
+- **核心文件**：`live_engine.py`、`strategy.py`、`indicators.py`、`config.yaml`
 - **品种**：NQ（MNQ，$2/点）+ ES（MES，$5/点），CME，用 `ContFuture` 自动滚近月
 - **当前合约**：MNQU6 / MESU6（9月，到期 2026-09-18）
-- **周期**：1h / 4h / 1d，三周期独立信号，仓位可叠加
+- **周期**：NQ 1h/4h/1d + ES 4h/1d，三周期独立信号，仓位可叠加
 - **开市时间**：周日 18:00 ET（北京时间周一 06:00）
 
 **仓位模式：**
 - 净值 < $60k：统一 1% 风险/笔
-- 净值 ≥ $60k：pyramid 模式（1h:1.0%，4h:1.5%，1d:4.5%）
+- 净值 ≥ $60k：pyramid 模式 NQ（1h:0.72%，4h:2.4%，1d:6.0%）/ ES（4h:1.5%，1d:4.5%）
+- NQ $100k 典型：1H=3手 / 4H=4手 / 1D=5手，全顺势最大12手MNQ
 - 止损：ATR × 1.5 × 合约乘数；$30k 下各 TF 均为 1 手（最小）
 
 **仓位叠加：**
@@ -82,6 +85,34 @@ cd /Users/cohan/Documents/quantrift_index_future && git pull origin master
 
 **幻象信号过滤：**
 - `live_engine.py` 第 4.5 节，空仓时回测末态有仓 → 验证当前 bar 指标是否满足入场条件，不满足则忽略（commit ab2e504）
+
+---
+
+### 系统二：ES MR 引擎（ib-bot-mr，clientId=21）
+
+- **核心文件**：`es_mr/mr_engine.py`、`es_mr/strategy_mr.py`、`es_mr/config_mr.yaml`
+- **品种**：MES 1H only，**次季合约**（deferred，跳过当期前月，避免临近交割流动性风险）
+- **策略**：超卖均值回归，只做多（RSI<28 + BB下轨 + VWAP-2ATR，三合一）
+- **仓位**：ATR 动态定仓，固定 1% 风险/笔（无金字塔，单 TF）
+  - 手数 = max(1, round(净值 × 1% / (ATR × 1.0 × $5)))
+  - $32k → 4手 | $60k → 8手 | $100k → 13手
+- **每日限制**：最多 1 笔入场（防同日连续亏损）
+- **状态文件**：`es_mr/mr_state.json`
+
+**启动命令：**
+```bash
+# dry-run 测试
+ssh mac-studio "cd /Users/congrenhan/Documents/quantrift_index_future && /opt/homebrew/bin/python3.11 es_mr/mr_engine.py --port 4001 --run-now --dry-run"
+
+# pm2 启动（首次）
+ssh mac-studio "PATH=/opt/homebrew/bin:$PATH pm2 start /opt/homebrew/bin/python3.11 --name ib-bot-mr -- /Users/congrenhan/Documents/quantrift_index_future/es_mr/mr_engine.py --port 4001"
+ssh mac-studio "PATH=/opt/homebrew/bin:$PATH pm2 save"
+
+# 日常管理
+ssh mac-studio "PATH=/opt/homebrew/bin:$PATH pm2 logs ib-bot-mr --lines 50"
+ssh mac-studio "PATH=/opt/homebrew/bin:$PATH pm2 restart ib-bot-mr"
+ssh mac-studio "PATH=/opt/homebrew/bin:$PATH pm2 stop ib-bot-mr"
+```
 
 ## 持续运行架构（commit e89a774）
 

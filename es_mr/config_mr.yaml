@@ -1,0 +1,49 @@
+# ES Mean Reversion Strategy — 参数配置（已优化）
+
+# 数据（相对于项目根路径）
+data_file: data/ESF_1h_2024-06-10_2026-06-08.csv
+start: "2024-06-10"
+end: "2026-06-08"
+interval: "1h"
+
+# 合约
+contract_size: 5        # MES $5/点
+commission: 0.00002
+margin: 0.05
+cash: 100000
+n_contracts: 1          # 回测用；实盘由 ATR 动态定仓覆盖
+
+# 实盘风险参数（ATR 动态定仓）
+risk_pct: 1.0           # 每笔风险 = 净值 × 1.0%
+# 手数 = (净值 × risk_pct%) / (ATR × sl_mult × $5)，最少 1 手
+# 示例：$32k × 1% / (15pt × 1.0 × $5) = $320/$75 ≈ 4 手
+
+# 布林带
+bb_len: 20
+bb_mult: 2.0
+
+# RSI（只用超卖端，做多信号）
+rsi_len: 14
+rsi_os: 28.0            # 超卖 → 做多信号（只做多，不做空）
+
+# ATR
+atr_len: 14
+
+# VWAP（价格在 VWAP 以下 vwap_atr_mult×ATR 才触发 VWAP 信号）
+vwap_atr_mult: 2.0      # 优化后从 1.5 → 2.0，提高信号质量
+
+# 市场过滤器（只用 ADX）
+adx_len: 14
+adx_threshold: 25.0     # ADX < 25 → 非趋势市，允许入场
+# CI 过滤已禁用（价格极端偏离时 CI 往往下降，与信号互斥）
+
+# 入场评分（3 个全中才入场）
+min_score: 3            # RSI + BB下轨 + VWAP偏离，必须全满足
+
+# 出场
+sl_mult: 1.0            # 止损 = entry - ATR × 1.0
+tp_atr_mult: 2.0        # 止盈 = entry + ATR × 2.0（R:R = 2:1）
+max_bars: 8             # 时间止损：最多持仓 8 根 1h bar
+
+# 策略方向：只做多（ES 牛市背景下空头 MR 胜率 < 40%）
+long_only: true
