@@ -67,6 +67,12 @@ class ConfluenceStrategy(Strategy):
     use_pattern_entry:    bool  = False
     pattern_entry_score:  int   = 2   # 至少几个底部信号才触发抄底
 
+    # ── VIX 极端恐慌过滤 ─────────────────────────────────────────
+    use_vix_filter:       bool  = False
+    vix_exit_threshold:   float = 40.0  # VIX > 此值 → 空头止盈（底部不追空）
+    use_vix_entry:        bool  = True  # VIX > vix_entry_threshold 时允许 pattern 抄底
+    vix_entry_threshold:  float = 40.0  # VIX > 此值 → pattern 信号抄底做多
+
     # ── 期货合约设置 ──────────────────────────────────────────────
     n_contracts:          int   = 0    # 0=全仓，>0=固定合约数
     contract_size:        int   = 2    # MNQ=$2/点，NQ=$20/点
@@ -136,6 +142,8 @@ class ConfluenceStrategy(Strategy):
         except Exception:
             rsi_val = 50.0
 
+        vix_level = float(self.data.vixLevel[-1])
+
         # ── 趋势过滤器 ────────────────────────────────────────────
         if self.use_trend_filter:
             trend_sma = float(self.data.trendSMA[-1])
@@ -177,6 +185,12 @@ class ConfluenceStrategy(Strategy):
                     self._wait_buy_reset  = True
                 else:
                     self._wait_sell_reset = True
+                return
+
+            # ① ter VIX 极端恐慌 → 空头止盈（不追空，准备抄底）
+            if self.use_vix_filter and d == -1 and vix_level > self.vix_exit_threshold:
+                self.position.close()
+                self._reset_stage()
                 return
 
             # ① bis Pattern 提前止盈
@@ -375,6 +389,20 @@ class ConfluenceStrategy(Strategy):
                          int(bool(self.data.pin_bar_bull[-1])) +
                          int(bool(self.data.double_bottom[-1])))
             if pat_score >= self.pattern_entry_score:
+                self._mr_mode = False
+                self._open_long()
+                return
+
+        # ── VIX 极端恐慌 → pattern 抄底做多 ─────────────────────────
+        if (self.use_vix_filter and self.use_vix_entry
+                and vix_level > self.vix_entry_threshold
+                and not self._wait_buy_reset
+                and not is_choppy):
+            pat_score = (int(bool(self.data.smi_bull_div[-1])) +
+                         int(bool(self.data.rsi_bull_div[-1])) +
+                         int(bool(self.data.pin_bar_bull[-1])) +
+                         int(bool(self.data.double_bottom[-1])))
+            if pat_score >= self.pattern_exit_score:
                 self._mr_mode = False
                 self._open_long()
                 return

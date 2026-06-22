@@ -9,6 +9,7 @@ indicators.py — 将 Pine Script Confluence 指标逻辑完整翻译为 Python�
 """
 
 import math
+from pathlib import Path
 import numpy as np
 import pandas as pd
 
@@ -662,5 +663,17 @@ def compute_signals(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     result['pin_bar_bear']  = pin_bar_bear.astype(float)
     result['double_bottom'] = double_bottom.astype(float)
     result['double_top']    = double_top.astype(float)
+
+    # ── VIX 过滤 ──────────────────────────────────────────────────
+    if params.get('use_vix_filter', False):
+        vix_path = Path(__file__).parent / 'data' / 'VIX_1d_2019-01-01_2026-06-09.csv'
+        vix_df   = pd.read_csv(vix_path, index_col=0, parse_dates=True)
+        vix_df.index = pd.to_datetime(vix_df.index).tz_localize(None).normalize()
+        bar_dates    = result.index.normalize()
+        vix_aligned  = vix_df['Close'].reindex(bar_dates, method='ffill')
+        vix_aligned.index = result.index
+        result['vixLevel'] = vix_aligned.fillna(0.0)
+    else:
+        result['vixLevel'] = 0.0
 
     return result

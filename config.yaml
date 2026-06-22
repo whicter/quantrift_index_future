@@ -164,6 +164,10 @@ timeframes:
     pin_wick_ratio: 1.5
     double_bottom_lookback: 20
     double_bottom_atr_tol: 0.5
+    use_vix_filter: true
+    vix_exit_threshold: 40.0
+    use_vix_entry: true   # 1D：VIX > 40 时允许 pattern 抄底（反弹幅度大，值得捕捉）
+    vix_entry_threshold: 40.0
   1h:
     adx_len: 14
     adx_threshold: 30.0
@@ -219,6 +223,10 @@ timeframes:
     pin_wick_ratio: 1.5
     double_bottom_lookback: 20
     double_bottom_atr_tol: 0.5
+    use_vix_filter: false  # 1H：VIX exit only 反而切掉空头收益，关闭
+    vix_exit_threshold: 40.0
+    use_vix_entry: false
+    vix_entry_threshold: 40.0
   4h:
     adx_len: 14
     adx_threshold: 30.0
@@ -275,3 +283,7 @@ timeframes:
     pin_wick_ratio: 1.5
     double_bottom_lookback: 20
     double_bottom_atr_tol: 0.5
+    use_vix_filter: false  # 4H：VIX exit only 伤害策略，关闭
+    vix_exit_threshold: 40.0
+    use_vix_entry: false
+    vix_entry_threshold: 40.0
