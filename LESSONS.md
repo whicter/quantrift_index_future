@@ -385,7 +385,60 @@ ATR 估算：1D≈400pt  /  4H≈200pt  /  1H≈80pt（NQ MNQ 历史均值）
 
 ---
 
-## 十二、待完成
+## 十二、ES 子系统策略更新（2026-06-21）
+
+### 背景
+
+在 NQ 完成 pattern exit + VIX 过滤后，对 ES 子系统做同等评估。
+ES（MES，$5/pt）与 NQ 关键差异：
+- ES = 500只股票，行业更分散，趋势性弱于 NQ，但 VIX 直接与 ES 挂钩（VIX 是 SP500 波动率）
+- ES 1H 趋势策略已永久移除（Sharpe=-0.445）；本次只测 ES 1D（5手）+ ES 4H（4手）
+- ES 4H 基准 Sharpe=1.064，远高于 NQ 4H 0.662，说明 ES 4H 趋势信号质量更好
+
+### 回测结果（$100k，四场景）
+
+**ES 1D（2020-01 ~ 2026-06）**
+
+| 场景 | 笔数 | 胜率 | Sharpe | MaxDD | PnL |
+|------|------|------|--------|-------|-----|
+| A Baseline（无exit无VIX） | 98 | 83.7% | 0.637 | -9.77% | +$44,551 |
+| B 短空exit only | 98 | 79.6% | 0.665 | -7.68% | +$43,735 |
+| C 双向exit | 105 | 74.3% | 0.449 | -14.68% | +$29,843 ❌ |
+| **D VIX过滤（短空exit+VIX）** | 98 | 79.6% | **0.670** | **-8.21%** | **+$48,320** ✅ |
+
+**ES 4H（2024-06 ~ 2026-06）**
+
+| 场景 | 笔数 | 胜率 | Sharpe | MaxDD | PnL |
+|------|------|------|--------|-------|-----|
+| **A Baseline（无exit）** | 84 | 88.1% | **1.064** | -9.59% | **+$19,405** ✅ |
+| B 短空exit only | 88 | 76.1% | 0.821 | -8.61% | +$13,765 ❌ |
+| C 双向exit | 76 | 64.5% | 0.440 | -10.09% | +$6,632 ❌ |
+
+### 关键发现
+
+**ES 4H pattern exit 有害（与 NQ 结论相反）**：
+- ES 4H 趋势信号质量极高（基准 Sharpe=1.064），pattern exit 在 2025 年把好空头提前砍掉
+- 2025年：A +$5,431 vs B +$685（损失 $4,746）
+- 结论：**ES 4H 关闭 pattern exit，保持 Baseline**
+
+**ES 1D VIX 过滤有效（与 NQ 1D 结论相同）**：
+- D vs A：Sharpe 0.670 vs 0.637，PnL +$48,320 vs +$44,551
+- 2025年：D +$31,164 vs A +$8,478（+$22,686，直接来自 VIX>40 平空+抄底）
+- 代价：2022年 D = -$2,044 vs A = +$9,967（pattern exit 提前砍 2022 熊市空头）
+- 整体权衡：Sharpe 和 MaxDD 均改善，可接受
+
+**为什么 NQ 4H pattern exit 有益但 ES 4H 有害**：
+- NQ 4H 基准 Sharpe=0.662，相对较低，空头容易出现假趋势，pattern exit 帮助及时止盈
+- ES 4H 基准 Sharpe=1.064，趋势质量高，pattern exit 反而是在高胜率趋势里增加噪声
+
+### 最终 ES 配置
+
+- **ES 1D**：`use_pattern_exit: true`，`use_pattern_long_exit: false`（仅空头），`use_vix_filter: true`，`use_vix_entry: true`，`vix_threshold: 40.0`
+- **ES 4H**：`use_pattern_exit: false`，`use_vix_filter: false`（保持纯 Baseline）
+
+---
+
+## 十三、待完成
 
 | 项目 | 优先级 | 说明 |
 |---|---|---|

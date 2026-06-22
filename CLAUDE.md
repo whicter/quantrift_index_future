@@ -150,10 +150,15 @@ IB Gateway 设置：Auto-Restart ON（每周日 1AM ET 自动重启）；Auto-Lo
 - + Pattern exit（1D关/4H1H开）：3.174
 - + VIX filter（1D：exit+entry）：**4.263**
 
-**最终策略配置**：
+**最终策略配置（NQ）**：
 - NQ 1D：`use_pattern_exit:false`，`use_vix_filter:true`，`use_vix_entry:true`
 - NQ 4H/1H：`use_pattern_exit:true`（仅空头），`use_vix_filter:false`
 - VIX > 40 触发：1D 空头止盈 + pattern 信号确认后抄底做多（需 ≥2 信号共振）
+
+**最终策略配置（ES）**：
+- ES 1D：`use_pattern_exit:true`（仅空头），`use_vix_filter:true`，`use_vix_entry:true`（VIX>40 平空+抄底）
+- ES 4H：`use_pattern_exit:false`，`use_vix_filter:false`（基准 Sharpe=1.064 已最优，不干预）
+- ES 1D 配置效果：2025年 +$31,164 vs 无VIX +$8,478；整体 Sharpe 0.637→0.670，MaxDD -9.77%→-8.21%
 
 **复利 + 动态仓位回测（年度再平衡，2024-03 ~ 2026-06）**：
 

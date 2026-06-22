@@ -17,6 +17,7 @@
 | Pattern + 背离信号实现（SMI/RSI背离、Pin Bar、双底/双顶，indicators.py + strategy.py） | 2026-06-21 |
 | Pattern exit 调优：仅空头模式（多头不干预，NQ 全历史 4H/1H 超越基准） | 2026-06-21 |
 | VIX 极端恐慌过滤（NQ 1D：VIX>40 空头止盈+抄底，$100k Sharpe 3.17→4.26，年化 36%→46%） | 2026-06-21 |
+| ES 策略更新：1D 加 VIX 过滤（Sharpe 0.637→0.670，2025年 +$8k→+$31k），4H 关闭 pattern exit（基准 Sharpe=1.064） | 2026-06-21 |
 
 ---
 
