@@ -69,10 +69,35 @@ def tg_alert(msg: str):
     threading.Thread(target=_send, daemon=True).start()
 
 
+def _mr_status() -> str:
+    """读取 ib-bot-mr 的状态文件，返回单行状态描述。"""
+    import subprocess
+    try:
+        # 检查进程是否存活
+        r = subprocess.run(["pgrep", "-f", "mr_engine.py"], capture_output=True)
+        alive = r.returncode == 0
+
+        # 读状态文件
+        if MR_STATE_FILE.exists():
+            with open(MR_STATE_FILE) as f:
+                mr = json.load(f)
+            pos = mr.get("signed_contracts", 0)
+            pos_str = f"{pos:+d}手" if pos != 0 else "空仓"
+            import time as _t
+            stale = (_t.time() - MR_STATE_FILE.stat().st_mtime) > 7200  # >2h 未更新
+            status = "✅" if alive else ("⚠️ 进程不存在" if stale else "⏸️ 已停止")
+            return f"ib-bot-mr（ES MR）{status}  MESZ6 {pos_str}"
+        else:
+            return f"ib-bot-mr（ES MR）{'✅' if alive else '❌ 未运行'}  状态文件不存在"
+    except Exception as e:
+        return f"ib-bot-mr（ES MR）⚠️ 状态读取失败: {e}"
+
+
 # ── 路径 / 时区 ────────────────────────────────────────────────────────
-BASE_DIR   = Path(__file__).parent
-LOG_DIR    = BASE_DIR / "logs"
-STATE_FILE = BASE_DIR / "live_state.json"
+BASE_DIR      = Path(__file__).parent
+LOG_DIR       = BASE_DIR / "logs"
+STATE_FILE    = BASE_DIR / "live_state.json"
+MR_STATE_FILE = BASE_DIR / "es_mr" / "mr_state.json"
 LOG_DIR.mkdir(exist_ok=True)
 ET = ZoneInfo("America/New_York")
 
@@ -640,10 +665,11 @@ def main():
                     log.warning(f"  拉取未平仓单失败: {e}")
 
                 # Telegram 通知
-                alert_parts = [f"✅ IB 已连接  账户净值: ${equity:,.0f}"]
+                alert_parts = [f"✅ ib-bot（趋势 NQ+ES）已连接  账户净值: ${equity:,.0f}"]
                 if mismatch_lines:
                     alert_parts.append("⚠️ 持仓不一致，请手动核查 live_state.json！")
                     alert_parts.extend(mismatch_lines)
+                alert_parts.append(_mr_status())
                 tg_alert("\n".join(alert_parts))
                 return
             except Exception as exc:
@@ -784,6 +810,27 @@ def main():
                         process_tf(ib, contracts[inst], inst, tf,
                                    params, state,
                                    equity, _get_tf_risk_pct(params, equity), args.dry_run)
+
+                # 整点心跳：联合播报两个 bot 状态
+                hr_key = f"heartbeat-{now_et.strftime('%Y%m%d-%H')}"
+                if hr_key not in triggered and now_et.minute == 0 and now_et.second <= 30:
+                    triggered.add(hr_key)
+                    nq_pos = {tf: state.get("NQ", {}).get(tf, {}).get("signed_contracts", 0)
+                              for tf in ["1h", "4h", "1d"]}
+                    es_pos = {tf: state.get("ES", {}).get(tf, {}).get("signed_contracts", 0)
+                              for tf in ["4h", "1d"]}
+                    nq_net = sum(nq_pos.values())
+                    es_net = sum(es_pos.values())
+                    hb_msg = (
+                        f"💓 整点心跳 {now_et.strftime('%m-%d %H:%M')} ET\n"
+                        f"💰 账户净值: ${equity:,.0f}\n"
+                        f"─────────────────\n"
+                        f"✅ ib-bot（趋势 NQ+ES）\n"
+                        f"  NQ: 1H{nq_pos['1h']:+d} / 4H{nq_pos['4h']:+d} / 1D{nq_pos['1d']:+d}  净仓{nq_net:+d}手\n"
+                        f"  ES: 4H{es_pos['4h']:+d} / 1D{es_pos['1d']:+d}  净仓{es_net:+d}手\n"
+                        f"{_mr_status()}"
+                    )
+                    tg_alert(hb_msg)
 
                 cutoff_h = datetime.now(ET).strftime('%Y%m%d-%H')
                 triggered = {k for k in triggered if k[:13] == cutoff_h}
