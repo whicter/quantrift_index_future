@@ -760,23 +760,28 @@ def main():
                 except Exception: pass
                 _time.sleep(10)
 
-    # Error 1100/1101/2110/2105 → 触发重连
-    needs_reconnect = [False]
+    # Error 1100/1101/2105 → 触发重连；2110 只记日志不重连
+    needs_reconnect    = [False]
     _last_reconnect_time = [0.0]
+    _last_tg_error_time  = [0.0]   # Telegram 告警冷却（5分钟）
     def on_error(reqId, errorCode, errorString, contract):
-        if errorCode in (1100, 1101, 2110):
+        import time as _t
+        if errorCode in (1100, 1101):
             needs_reconnect[0] = True
             log.warning(f"⚠️  Error {errorCode}: IB连接异常，将触发重连")
-            tg_alert(f"⚠️ IB 连接异常 (Error {errorCode})，正在重连...")
+            # Telegram 5分钟冷却，避免反复刷屏
+            if _t.time() - _last_tg_error_time[0] > 300:
+                _last_tg_error_time[0] = _t.time()
+                tg_alert(f"⚠️ IB 连接异常 (Error {errorCode})，正在重连...")
+        elif errorCode == 2110:
+            # TWS→IBKR 链路中断，会自动恢复，不主动重连
+            # （重连后立刻收到 2110 → 再重连 → 死循环，故移除）
+            log.warning("⚠️  Error 2110: TWS→IBKR 断连，等待自动恢复（不主动重连）")
         elif errorCode == 2105:
-            # HMDS ushmds 断连 → 立刻重连，有 60s 冷却防止循环
-            import time as _t
-            now = _t.time()
-            if now - _last_reconnect_time[0] > 60:
-                _last_reconnect_time[0] = now
-                needs_reconnect[0] = True
-                log.warning("⚠️  Error 2105: HMDS ushmds 断连，立刻触发重连")
-                tg_alert("⚠️ HMDS ushmds 断连，正在重连...")
+            # HMDS ushmds 断连 → 只记日志，不主动重连
+            # 原因：Gateway 与 IBKR 断连期间 2105 必然出现，此时 TCP 连接仍在；
+            # fetch_bars 有 3 次重试 + RuntimeError 机制，会在真正需要时触发重连
+            log.warning("⚠️  Error 2105: HMDS ushmds 断连（等待自动恢复）")
     ib.errorEvent += on_error
 
     do_connect()
