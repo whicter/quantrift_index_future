@@ -690,11 +690,30 @@ def main():
     equity    = 0.0
     state     = load_state(active_instruments)
     contracts = {}
+    _last_gw_restart = [0.0]   # Gateway 上次重启时间（防止频繁重启）
+
+    def _restart_gateway():
+        """连续连接失败后，kill Gateway 并通过 IBC 重启（自动登录）。"""
+        import subprocess
+        now = _time.time()
+        if now - _last_gw_restart[0] < 900:   # 15分钟内不重复重启
+            log.warning(f"  Gateway 重启冷却中（距上次 {now - _last_gw_restart[0]:.0f}s），跳过")
+            return
+        _last_gw_restart[0] = now
+        script = BASE_DIR / "restart_gateway.sh"
+        log.warning("  kill Gateway + IBC，等待 IBC 重新自动登录...")
+        tg_alert("⚠️ 连续连接失败，正在重启 IB Gateway（IBC 自动登录）...")
+        try:
+            with open("/tmp/ibc_restart.log", "a") as lf:
+                subprocess.Popen(["/bin/bash", str(script)], stdout=lf, stderr=subprocess.STDOUT)
+        except Exception as e:
+            log.error(f"  Gateway 重启失败: {e}")
 
     def do_connect():
         """带重试的连接，连上后同步持仓/净值/合约"""
         nonlocal equity, contracts
         _conn_fail_alerted = [False]
+        _fail_count = 0
         while True:
             try:
                 if ib.isConnected():
@@ -752,13 +771,20 @@ def main():
                 tg_alert("\n".join(alert_parts))
                 return
             except Exception as exc:
-                log.error(f"  连接失败: {exc}，10秒后重试")
+                _fail_count += 1
+                log.error(f"  连接失败 ({_fail_count}次): {exc}，10秒后重试")
                 if not _conn_fail_alerted[0]:
-                    tg_alert(f"\u274c IB Gateway 连接失败，持续重试中...\n{exc}")
+                    tg_alert(f"❌ IB Gateway 连接失败，持续重试中...\n{exc}")
                     _conn_fail_alerted[0] = True
                 try: ib.disconnect()
                 except Exception: pass
-                _time.sleep(10)
+                # 每5次失败重启一次 Gateway（kill + IBC 自动登录）
+                if _fail_count % 5 == 0:
+                    log.warning(f"⚠️ 已连续失败 {_fail_count} 次，重启 Gateway 并等待90秒...")
+                    _restart_gateway()
+                    _time.sleep(90)   # 等 Gateway 启动 + IBC 自动登录
+                else:
+                    _time.sleep(10)
 
     # Error 1100/1101/2105 → 触发重连；2110 只记日志不重连
     needs_reconnect    = [False]
