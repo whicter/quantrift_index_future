@@ -69,6 +69,78 @@ def tg_alert(msg: str):
     threading.Thread(target=_send, daemon=True).start()
 
 
+def update_vix_csv(ib: IB):
+    """更新 VIX 日线 CSV（data/VIX_1d.csv）。
+    主链路：yfinance（免费）；失败时回退到 IB Index 数据。
+    静默失败，不影响引擎运行。
+    """
+    _vix_old = BASE_DIR / "data" / "VIX_1d_2019-01-01_2026-06-09.csv"
+    csv_src  = VIX_CSV if VIX_CSV.exists() else _vix_old
+    try:
+        vix_df = pd.read_csv(csv_src, index_col=0, parse_dates=True)
+        vix_df.index = pd.to_datetime(vix_df.index).tz_localize(None).normalize()
+        vix_df = vix_df[['Close']].copy()
+    except Exception as e:
+        log.warning(f"VIX CSV 读取失败: {e}")
+        return
+
+    last_date = vix_df.index.max()
+    yesterday = pd.Timestamp.now().normalize() - pd.Timedelta(days=1)
+    if last_date >= yesterday:
+        log.info(f"VIX CSV 已是最新（{last_date.date()}），跳过更新")
+        return
+
+    start_str   = (last_date + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    days_needed = (pd.Timestamp.now().normalize() - last_date).days + 2
+    new_data    = None
+
+    # 1. yfinance（免费，首选）
+    try:
+        import yfinance as yf
+        raw = yf.download("^VIX", start=start_str, progress=False, auto_adjust=False)
+        if not raw.empty:
+            if isinstance(raw.columns, pd.MultiIndex):
+                raw.columns = raw.columns.get_level_values(0)
+            raw = raw[['Close']].copy()
+            raw.index = pd.to_datetime(raw.index).tz_localize(None).normalize()
+            new_data = raw
+            log.info(f"VIX yfinance 更新成功，新增 {len(new_data)} 行，至 {new_data.index.max().date()}")
+    except Exception as e:
+        log.warning(f"yfinance 获取 VIX 失败（尝试 IB 备用）: {e}")
+
+    # 2. IB 备用（需要 CBOE 订阅或延迟数据权限）
+    if (new_data is None or new_data.empty) and ib is not None and ib.isConnected():
+        try:
+            from ib_insync import Contract as IBContract
+            vix_contract = IBContract(symbol="VIX", secType="IND", exchange="CBOE", currency="USD")
+            bars = ib.reqHistoricalData(
+                vix_contract,
+                endDateTime="",
+                durationStr=f"{min(days_needed, 365)} D",
+                barSizeSetting="1 day",
+                whatToShow="TRADES",
+                useRTH=True,
+                formatDate=1,
+                keepUpToDate=False,
+            )
+            if bars:
+                tmp = util.df(bars)[['date', 'close']].copy()
+                tmp['date'] = pd.to_datetime(tmp['date']).dt.tz_localize(None).dt.normalize()
+                tmp = tmp.set_index('date').rename(columns={'close': 'Close'})
+                tmp = tmp[tmp.index > last_date]
+                new_data = tmp
+                log.info(f"VIX IB 备用成功，新增 {len(new_data)} 行，至 {new_data.index.max().date()}")
+        except Exception as e:
+            log.warning(f"IB 获取 VIX 失败: {e}  VIX 数据维持旧版（至 {last_date.date()}）")
+
+    # 合并并写入统一 CSV
+    if new_data is not None and not new_data.empty:
+        combined = pd.concat([vix_df, new_data])
+        combined = combined[~combined.index.duplicated(keep='last')].sort_index()
+        combined.to_csv(VIX_CSV)
+        log.info(f"VIX CSV 已写入 {VIX_CSV.name}（共 {len(combined)} 行）")
+
+
 def _mr_status() -> str:
     """读取 ib-bot-mr 的状态文件，返回单行状态描述。"""
     import subprocess
@@ -98,6 +170,7 @@ BASE_DIR      = Path(__file__).parent
 LOG_DIR       = BASE_DIR / "logs"
 STATE_FILE    = BASE_DIR / "live_state.json"
 MR_STATE_FILE = BASE_DIR / "es_mr" / "mr_state.json"
+VIX_CSV       = BASE_DIR / "data" / "VIX_1d.csv"
 LOG_DIR.mkdir(exist_ok=True)
 ET = ZoneInfo("America/New_York")
 
@@ -663,6 +736,12 @@ def main():
                         log.info("  未平仓单: 无")
                 except Exception as e:
                     log.warning(f"  拉取未平仓单失败: {e}")
+
+                # 更新 VIX CSV（yfinance 优先，IB 备用）
+                try:
+                    update_vix_csv(ib)
+                except Exception as e:
+                    log.warning(f"VIX 更新失败（非致命）: {e}")
 
                 # Telegram 通知
                 alert_parts = [f"✅ ib-bot（趋势 NQ+ES）已连接  账户净值: ${equity:,.0f}"]

@@ -666,7 +666,12 @@ def compute_signals(df: pd.DataFrame, params: dict) -> pd.DataFrame:
 
     # ── VIX 过滤 ──────────────────────────────────────────────────
     if params.get('use_vix_filter', False):
-        vix_path = Path(__file__).parent / 'data' / 'VIX_1d_2019-01-01_2026-06-09.csv'
+        _data_dir = Path(__file__).parent / 'data'
+        vix_path  = _data_dir / 'VIX_1d.csv'
+        if not vix_path.exists():
+            # 回退到旧带日期文件名
+            candidates = sorted(_data_dir.glob('VIX_1d_*.csv'))
+            vix_path   = candidates[-1] if candidates else vix_path
         vix_df   = pd.read_csv(vix_path, index_col=0, parse_dates=True)
         vix_df.index = pd.to_datetime(vix_df.index).tz_localize(None).normalize()
         bar_dates    = result.index.normalize()
