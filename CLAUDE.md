@@ -192,6 +192,31 @@ $100k 档手数演进：2024（5/4/3）→ 2025（6/5/4）→ 2026（9/7/6），
 | `compare_pyramid_risk.py` | pyramid 风险参数对比 |
 | `pyramid_sizing.py` | 全历史复利回测（$100k/$200k 月度调仓） |
 
+## 最近实现（2026-06-21，续）
+
+**VIX 数据自动更新**（commit 8929c80）：
+- `live_engine.py` 新增 `update_vix_csv(ib)`，每次连接 IB 成功后自动更新
+  - 主链路：`yfinance ^VIX`（免费，无需 IB 订阅）
+  - 备用：IB VIX IND 合约（需 CBOE 延迟/实时权限）
+  - 两者均失败：静默，沿用旧数据，不影响引擎
+- `indicators.py`：VIX 路径改为 `data/VIX_1d.csv`（通用名），旧带日期文件名作回退
+- 初始化：`data/VIX_1d.csv`（1878行，至 2026-06-19）
+
+**重连逻辑修复**（commit 6a29271）：
+- 修复 Error 2110/2105 触发重连导致的死循环：
+  - 2110（TWS→IBKR 断连，会自动恢复）：移除重连触发，仅记日志
+  - 2105（HMDS 断连）：移除重连触发，fetch_bars 3次重试兜底
+  - 1100/1101：保留，新增5分钟 Telegram 冷却防刷屏
+- 原死循环：1100 → 重连 → 收到 2110 → 立刻再重连 → 无限循环
+
+**Gateway 自动重启**（commit e6de53c）：
+- `live_engine.py`：连续5次 do_connect 失败 → 调用 `_restart_gateway()`
+  - 15分钟冷却防止频繁重启
+  - kill Gateway + IBC → 重启 IBC（自动登录）→ 等90秒
+- `restart_gateway.sh`：kill ibcstart.sh + IbcGateway，执行 ibcstart.sh 重启
+
+**注意**：周末 IB 有时强制2FA，IBC 存了账号密码但拦不住 IBKR 服务器主动触发的验证，需手动处理一次。
+
 ## 最近实现（2026-06-21）
 
 **ES 子系统策略更新**（commit 350d98e）：

@@ -20,6 +20,9 @@
 | ES 策略更新：1D 加 VIX 过滤（Sharpe 0.637→0.670，2025年 +$8k→+$31k），4H 关闭 pattern exit（基准 Sharpe=1.064） | 2026-06-21 |
 | 联合 bot 状态 Telegram：连接消息区分 ib-bot/ib-bot-mr，整点心跳播报两个 bot + 各品种持仓 | 2026-06-21 |
 | ib-bot-mr 重启（MESZ6 次季合约，clientId=21，空仓待机） | 2026-06-21 |
+| VIX 自动更新（yfinance 主链路，IB 备用，无需 CBOE 订阅） | 2026-06-21 |
+| 重连死循环修复（2110/2105 不触发重连，1100 Telegram 5分钟冷却） | 2026-06-21 |
+| Gateway 自动重启（连续5次失败 → restart_gateway.sh kill+IBC重启） | 2026-06-21 |
 
 ---
 
