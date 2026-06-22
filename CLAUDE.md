@@ -192,6 +192,32 @@ $100k 档手数演进：2024（5/4/3）→ 2025（6/5/4）→ 2026（9/7/6），
 | `compare_pyramid_risk.py` | pyramid 风险参数对比 |
 | `pyramid_sizing.py` | 全历史复利回测（$100k/$200k 月度调仓） |
 
+## 最近实现（2026-06-21）
+
+**ES 子系统策略更新**（commit 350d98e）：
+- ES 1D：加 VIX 过滤（`use_vix_filter/entry: true`，VIX>40 平空+抄底），Sharpe 0.637→0.670，2025年 +$8k→+$31k
+- ES 4H：关闭 pattern exit（`use_pattern_exit: false`），保持基准 Sharpe=1.064（pattern exit 在 2025年把好空头砍掉 -$4,746）
+- ES 4H pattern exit 有害的原因：ES 4H 趋势质量本身极高，不需要额外过滤
+
+**联合 bot 状态 Telegram 通知**（commit 47c4e02）：
+- `live_engine.py` 新增 `_mr_status()` 辅助函数，读 `es_mr/mr_state.json` + 检查进程存活
+- 连接消息：改为"ib-bot（趋势 NQ+ES）已连接"，附 ib-bot-mr 状态一行
+- 整点心跳：每小时发送两个 bot 联合状态（连接状态 + NQ/ES 各TF持仓 + MR 持仓 + 净值）
+- 心跳格式示例：
+  ```
+  💓 整点心跳 06-21 21:00 ET
+  💰 账户净值: $33,154
+  ─────────────────
+  ✅ ib-bot（趋势 NQ+ES）
+    NQ: 1H+0 / 4H+0 / 1D+0  净仓+0手
+    ES: 4H+0 / 1D+0  净仓+0手
+  ib-bot-mr（ES MR）✅  MESZ6 空仓
+  ```
+
+**ib-bot-mr 重新启动**：
+- 之前因昨晚 dry-run 进程未退出占用 clientId 21，已清理并重启
+- 当前合约：MESZ6（12月，次季合约），空仓待机
+
 ## 最近实现（2026-06-20）
 
 **死代码清理**（commit 52fd766）：
