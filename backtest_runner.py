@@ -217,6 +217,21 @@ def run_one(tf_name: str, tf_params: dict, plot: bool = False) -> dict:
     ConfluenceStrategy.atr_tp1_mult        = float(tf_params.get("atr_tp1_mult", 1.0))
     ConfluenceStrategy.atr_tp2_mult        = float(tf_params.get("atr_tp2_mult", 2.0))
     ConfluenceStrategy.tp1_portion         = float(tf_params.get("tp1_portion", 0.34))
+    # Pattern exit / entry
+    ConfluenceStrategy.use_pattern_exit      = bool(tf_params.get("use_pattern_exit", True))
+    ConfluenceStrategy.use_pattern_long_exit = bool(tf_params.get("use_pattern_long_exit", False))
+    ConfluenceStrategy.pattern_exit_score    = int(tf_params.get("pattern_exit_score", 2))
+    ConfluenceStrategy.use_pattern_entry     = bool(tf_params.get("use_pattern_entry", False))
+    ConfluenceStrategy.pattern_entry_score   = int(tf_params.get("pattern_entry_score", 2))
+    # VIX 极端恐慌过滤
+    ConfluenceStrategy.use_vix_filter        = bool(tf_params.get("use_vix_filter", False))
+    ConfluenceStrategy.vix_exit_threshold    = float(tf_params.get("vix_exit_threshold", 40.0))
+    ConfluenceStrategy.use_vix_entry         = bool(tf_params.get("use_vix_entry", False))
+    ConfluenceStrategy.vix_entry_threshold   = float(tf_params.get("vix_entry_threshold", 40.0))
+    # VIX 中度压力 MR（30-40 zone）
+    ConfluenceStrategy.use_vix_mr            = bool(tf_params.get("use_vix_mr", False))
+    ConfluenceStrategy.vix_mr_lower          = float(tf_params.get("vix_mr_lower", 30.0))
+    ConfluenceStrategy.vix_mr_score          = int(tf_params.get("vix_mr_score", 3))
 
     bt = Backtest(
         df,

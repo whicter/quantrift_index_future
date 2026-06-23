@@ -55,6 +55,9 @@ es_timeframes:
     use_vix_entry: true
     vix_exit_threshold: 40.0
     vix_entry_threshold: 40.0
+    use_vix_mr: true
+    vix_mr_lower: 30.0
+    vix_mr_score: 2
   4h:
     adx_len: 14
     adx_threshold: 28.1735
@@ -176,6 +179,9 @@ timeframes:
     vix_exit_threshold: 40.0
     use_vix_entry: true   # 1D：VIX > 40 时允许 pattern 抄底（反弹幅度大，值得捕捉）
     vix_entry_threshold: 40.0
+    use_vix_mr: false     # VIX 30-40：NQ 1D 测试无效（bear market 假信号），关闭
+    vix_mr_lower: 30.0
+    vix_mr_score: 3
   1h:
     adx_len: 14
     adx_threshold: 30.0

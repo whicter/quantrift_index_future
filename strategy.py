@@ -73,6 +73,11 @@ class ConfluenceStrategy(Strategy):
     use_vix_entry:        bool  = True  # VIX > vix_entry_threshold 时允许 pattern 抄底
     vix_entry_threshold:  float = 40.0  # VIX > 此值 → pattern 信号抄底做多
 
+    # ── VIX 中度压力 MR（30-40 zone）────────────────────────────
+    use_vix_mr:           bool  = False
+    vix_mr_lower:         float = 30.0  # MR 触发下限（VIX 在 vix_mr_lower ~ vix_entry_threshold）
+    vix_mr_score:         int   = 3     # pattern 信号要求（比 VIX>40 更严格）
+
     # ── 期货合约设置 ──────────────────────────────────────────────
     n_contracts:          int   = 0    # 0=全仓，>0=固定合约数
     contract_size:        int   = 2    # MNQ=$2/点，NQ=$20/点
@@ -403,6 +408,20 @@ class ConfluenceStrategy(Strategy):
                          int(bool(self.data.pin_bar_bull[-1])) +
                          int(bool(self.data.double_bottom[-1])))
             if pat_score >= self.pattern_exit_score:
+                self._mr_mode = False
+                self._open_long()
+                return
+
+        # ── VIX 中度压力（30-40）→ pattern 确认抄底做多 ──────────────
+        if (self.use_vix_mr
+                and self.vix_mr_lower < vix_level <= self.vix_entry_threshold
+                and not self._wait_buy_reset
+                and not is_choppy):
+            pat_score = (int(bool(self.data.smi_bull_div[-1])) +
+                         int(bool(self.data.rsi_bull_div[-1])) +
+                         int(bool(self.data.pin_bar_bull[-1])) +
+                         int(bool(self.data.double_bottom[-1])))
+            if pat_score >= self.vix_mr_score:
                 self._mr_mode = False
                 self._open_long()
                 return

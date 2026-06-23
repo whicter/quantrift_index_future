@@ -63,7 +63,20 @@ timeframes:
     atr_tp2_mult: 2.0
     atr_sl_mult: 1.5
     tp1_portion: 0.34
-    use_atr_exit: false
+    use_pattern_exit: true
+    use_pattern_long_exit: false
+    pattern_exit_score: 2
+    divergence_lookback: 5
+    pin_wick_ratio: 1.5
+    double_bottom_lookback: 20
+    double_bottom_atr_tol: 0.5
+    use_vix_filter: true
+    vix_exit_threshold: 40.0
+    use_vix_entry: true
+    vix_entry_threshold: 40.0
+    use_vix_mr: true
+    vix_mr_lower: 30.0
+    vix_mr_score: 2
 
   1h:
     data_file: data/ESF_1h_2024-06-10_2026-06-08.csv

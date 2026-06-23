@@ -27,7 +27,7 @@ import yaml
 
 BASE_DIR     = Path(__file__).parent
 RNG = random.Random()
-CONFIG_PATH  = BASE_DIR / "config.yaml"
+CONFIG_PATH  = BASE_DIR / "config.yaml"   # 运行时由 CLI 覆盖
 RESULTS_DIR  = BASE_DIR / "results"
 RESULTS_DIR.mkdir(exist_ok=True)
 
@@ -93,7 +93,8 @@ def _python_exe() -> str:
 
 def run_backtest_subprocess() -> dict:
     """子进程运行回测，返回 {tf_name: report} 字典。"""
-    cmd  = [_python_exe(), str(BASE_DIR / "backtest_runner.py")]
+    cmd  = [_python_exe(), str(BASE_DIR / "backtest_runner.py"),
+            "--config", str(CONFIG_PATH)]
     proc = subprocess.run(cmd, capture_output=True, text=True, cwd=str(BASE_DIR))
     if proc.returncode != 0:
         raise RuntimeError(f"回测失败:\n{proc.stderr[-2000:]}")
@@ -372,5 +373,9 @@ def optimize(n_rounds: int = 10):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--rounds", type=int, default=10)
+    parser.add_argument("--config", default=None,
+                        help="指定 config yaml 路径（默认 config.yaml）")
     args = parser.parse_args()
+    if args.config:
+        CONFIG_PATH = Path(args.config)
     optimize(n_rounds=args.rounds)
