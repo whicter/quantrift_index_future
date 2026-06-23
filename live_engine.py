@@ -146,7 +146,7 @@ def _mr_status() -> str:
     import subprocess
     try:
         # 检查进程是否存活
-        r = subprocess.run(["pgrep", "-f", "mr_engine.py"], capture_output=True)
+        r = subprocess.run(["/usr/bin/pgrep", "-f", "mr_engine.py"], capture_output=True)
         alive = r.returncode == 0
 
         # 读状态文件
@@ -168,6 +168,7 @@ def _mr_status() -> str:
         else:
             return f"ib-bot-mr（ES MR）{'✅' if alive else '❌ 未运行'}  状态文件不存在"
     except Exception as e:
+        log.error(f"_mr_status() 异常: {e}", exc_info=True)
         return f"ib-bot-mr（ES MR）⚠️ 状态读取失败: {e}"
 
 
