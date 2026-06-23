@@ -645,6 +645,8 @@ def main():
                         help="立即运行一次（测试用）")
     parser.add_argument("--dry-run",    action="store_true",
                         help="只打印信号，不实际下单")
+    parser.add_argument("--client-id",  type=int, default=20,
+                        help="IB clientId（干跑用不同ID避免踢掉主bot，如 99）")
     args = parser.parse_args()
 
     # ── 加载配置 ────────────────────────────────────────────────────
@@ -691,12 +693,14 @@ def main():
     state     = load_state(active_instruments)
     contracts = {}
     _last_gw_restart = [0.0]   # Gateway 上次重启时间（防止频繁重启）
+    _got_err_326    = [False]  # Error 326 (clientId冲突) 标志，不计入重启计数
+    _err_326_count  = [0]      # 连续 326 次数，超 30 次发 Telegram 告警
 
     def _restart_gateway():
         """连续连接失败后，kill Gateway 并通过 IBC 重启（自动登录）。"""
         import subprocess
         now = _time.time()
-        if now - _last_gw_restart[0] < 900:   # 15分钟内不重复重启
+        if now - _last_gw_restart[0] < 7200:   # 2小时内不重复重启
             log.warning(f"  Gateway 重启冷却中（距上次 {now - _last_gw_restart[0]:.0f}s），跳过")
             return
         _last_gw_restart[0] = now
@@ -720,7 +724,7 @@ def main():
                     try: ib.disconnect()
                     except Exception: pass
                 log.info(f"连接 IB Gateway {args.host}:{args.port}...")
-                ib.connect(args.host, args.port, clientId=20, timeout=30, readonly=False)
+                ib.connect(args.host, args.port, clientId=args.client_id, timeout=30, readonly=False)
                 log.info(f"✅ IB 已连接  账户: {ib.wrapper.accounts}")
                 equity = get_account_equity(ib)
                 contracts.update({inst: get_contract(ib, inst) for inst in active_instruments})
@@ -771,6 +775,24 @@ def main():
                 tg_alert("\n".join(alert_parts))
                 return
             except Exception as exc:
+                if _got_err_326[0]:
+                    # Error 326 = clientId 已被占用，Gateway 本身正常，不计入重启计数
+                    _got_err_326[0] = False
+                    _err_326_count[0] += 1
+                    log.error(f"  clientId 冲突（Error 326，第{_err_326_count[0]}次），Gateway正常，10秒后重试")
+                    if _err_326_count[0] == 30:
+                        import os as _os, subprocess as _sp
+                        my_pid = _os.getpid()
+                        result = _sp.run(
+                            f"pgrep -f 'live_engine.py' | grep -v {my_pid} | xargs kill -9",
+                            shell=True, capture_output=True)
+                        log.warning(f"⚠️ clientId 冲突持续5分钟，已自动 kill 冲突进程（自身PID={my_pid}）")
+                        tg_alert("⚠️ clientId 20 被占用持续5分钟，已自动 kill 冲突进程，继续重连...")
+                    try: ib.disconnect()
+                    except Exception: pass
+                    _time.sleep(10)
+                    continue
+                _err_326_count[0] = 0  # 成功连接或其他错误时重置
                 _fail_count += 1
                 log.error(f"  连接失败 ({_fail_count}次): {exc}，10秒后重试")
                 if not _conn_fail_alerted[0]:
@@ -778,9 +800,9 @@ def main():
                     _conn_fail_alerted[0] = True
                 try: ib.disconnect()
                 except Exception: pass
-                # 每5次失败重启一次 Gateway（kill + IBC 自动登录）
-                if _fail_count % 5 == 0:
-                    log.warning(f"⚠️ 已连续失败 {_fail_count} 次，重启 Gateway 并等待90秒...")
+                # 失败超过30次（5分钟）才重启 Gateway
+                if _fail_count % 30 == 0:
+                    log.warning(f"⚠️ 已连续失败 {_fail_count} 次（约{_fail_count//6}分钟），重启 Gateway...")
                     _restart_gateway()
                     _time.sleep(90)   # 等 Gateway 启动 + IBC 自动登录
                 else:
@@ -799,6 +821,8 @@ def main():
             if _t.time() - _last_tg_error_time[0] > 300:
                 _last_tg_error_time[0] = _t.time()
                 tg_alert(f"⚠️ IB 连接异常 (Error {errorCode})，正在重连...")
+        elif errorCode == 326:
+            _got_err_326[0] = True
         elif errorCode == 2110:
             # TWS→IBKR 链路中断，会自动恢复，不主动重连
             # （重连后立刻收到 2110 → 再重连 → 死循环，故移除）
