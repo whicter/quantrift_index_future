@@ -54,6 +54,7 @@ cd /Users/cohan/Documents/quantrift_index_future && git pull origin master
 **绝对不要做：**
 - 不要在本机直接连 127.0.0.1:4001/4002
 - git push 必须用 `ssh -A`，否则没有 GitHub 权限
+- **干跑（--dry-run）绝对不能用 clientId 20**（主bot用20，会踢掉主bot）。干跑必须用不同 clientId，例如 `--client-id 99`
 
 ## 策略架构
 
@@ -191,6 +192,30 @@ $100k 档手数演进：2024（5/4/3）→ 2025（6/5/4）→ 2026（9/7/6），
 | `compare_staged_tp.py` | staged_tp True/False 三场景对比 |
 | `compare_pyramid_risk.py` | pyramid 风险参数对比 |
 | `pyramid_sizing.py` | 全历史复利回测（$100k/$200k 月度调仓） |
+
+## 最近实现（2026-06-23）
+
+**Gateway 重连逻辑重构**（live_engine.py）：
+
+- **Error 326（clientId 冲突）不计入 fail_count**：326 = Gateway 正常只是 clientId 被占，计入会误杀好的 Gateway
+  - 连续 30 次（5分钟）→ 自动 `kill -9` 所有其他 live_engine.py 进程，发 Telegram 通知
+- **Gateway 重启阈值：5 → 30 次（50秒 → 5分钟）**：减少误重启，避免短暂断连被当 Gateway 故障
+- **2小时冷却**：两次 restart_gateway.sh 调用之间最少间隔 7200s
+
+**restart_gateway.sh 修复**：`pkill -f "IbcGateway"` 改为 `pkill -9 -f "IbcGateway"`（SIGKILL）
+- 原因：SIGTERM 允许 Gateway 清理 → 删除 autorestart 文件 → 每次重启都要 2FA
+- SIGKILL 强杀 → autorestart 文件保留 → IBC 自动重登不需要 2FA
+
+**Gateway 架构澄清**（2026-06-23 排查中发现）：
+- `com.quantrift.ibc.plist`（`KeepAlive: true`）由 launchd 管理，Gateway 退出后自动拉起
+- 不要在 `restart_gateway.sh` 里 `exec ibcstart.sh`——会产生两个并发 IBC 争抢 Gateway GUI，导致 Gateway 不稳定
+- 正确做法：只 kill Gateway，让 launchd 的 `com.quantrift.ibc.plist` 自动重启
+
+**周日夜间三次重启根因（2026-06-22 23:11 PDT）**：
+- 有人跑了 `live_engine.py --dry-run` 未指定 `--client-id`，默认使用 clientId 20
+- 干跑因 Error 326（clientId 占用）连续失败 5 次，旧代码触发 restart_gateway.sh，杀掉了正常运行的 Gateway
+- autorestart 文件被 SIGTERM 删除，后续每次重启都需要 2FA
+- restart_gateway.sh 的 ibcstart.sh 循环与 launchd IBC 并发，每隔 18 分钟干扰一次 Gateway → 23:29、23:48 两次再断线
 
 ## 最近实现（2026-06-21，续）
 

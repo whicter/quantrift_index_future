@@ -496,7 +496,7 @@ def main():
 
     def do_connect():
         nonlocal equity, contract
-        _fail_alerted = [False]
+        _last_fail_alert = [0.0]
         while True:
             try:
                 if ib.isConnected():
@@ -524,9 +524,10 @@ def main():
                 return
             except Exception as exc:
                 log.error(f"  连接失败: {exc}，10秒后重试")
-                if not _fail_alerted[0]:
+                now = _time.time()
+                if now - _last_fail_alert[0] > 3600:  # 每小时最多提醒一次
                     tg_alert(f"❌ MR 引擎连接失败，持续重试...\n{exc}")
-                    _fail_alerted[0] = True
+                    _last_fail_alert[0] = now
                 try: ib.disconnect()
                 except Exception: pass
                 _time.sleep(10)

@@ -157,7 +157,13 @@ def _mr_status() -> str:
             pos_str = f"{pos:+d}手" if pos != 0 else "空仓"
             import time as _t
             stale = (_t.time() - MR_STATE_FILE.stat().st_mtime) > 7200  # >2h 未更新
-            status = "✅" if alive else ("⚠️ 进程不存在" if stale else "⏸️ 已停止")
+            # 进程存活但状态文件 >2h 未更新 = 连接可能断了
+            if alive and stale:
+                status = "⚠️ 连接可能断开（状态文件>2h未更新）"
+            elif alive:
+                status = "✅"
+            else:
+                status = "❌ 进程不存在"
             return f"ib-bot-mr（ES MR）{status}  MESZ6 {pos_str}"
         else:
             return f"ib-bot-mr（ES MR）{'✅' if alive else '❌ 未运行'}  状态文件不存在"
