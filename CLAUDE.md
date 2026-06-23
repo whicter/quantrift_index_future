@@ -195,16 +195,25 @@ $100k 档手数演进：2024（5/4/3）→ 2025（6/5/4）→ 2026（9/7/6），
 
 ## 最近实现（2026-06-23）
 
-**Gateway 重连逻辑重构**（live_engine.py）：
+**mr_engine.py 断连修复**（commit eff0131）：
+- `except Exception` 分支缺少 `needs_reconnect[0] = True`，导致 `ConnectionError: Not connected` 不触发重连
+- 进程存活但 IB 连接已死，bot 持续运行但每小时失败一次，状态文件 2.4 天未更新
+- 任何未预期错误现在都触发重连
+- **教训：进程存活 ≠ 连接健康**。`_mr_status()` 用 pgrep 判断 ✅ 是错的，需要同时检查状态文件新鲜度
+
+**Gateway 重连逻辑重构**（live_engine.py，commit 4ceb8d8）：
 
 - **Error 326（clientId 冲突）不计入 fail_count**：326 = Gateway 正常只是 clientId 被占，计入会误杀好的 Gateway
   - 连续 30 次（5分钟）→ 自动 `kill -9` 所有其他 live_engine.py 进程，发 Telegram 通知
 - **Gateway 重启阈值：5 → 30 次（50秒 → 5分钟）**：减少误重启，避免短暂断连被当 Gateway 故障
 - **2小时冷却**：两次 restart_gateway.sh 调用之间最少间隔 7200s
+- **新增 `--client-id` 参数**：干跑必须用 `--client-id 99`，避免踢掉主 bot
 
-**restart_gateway.sh 修复**：`pkill -f "IbcGateway"` 改为 `pkill -9 -f "IbcGateway"`（SIGKILL）
-- 原因：SIGTERM 允许 Gateway 清理 → 删除 autorestart 文件 → 每次重启都要 2FA
-- SIGKILL 强杀 → autorestart 文件保留 → IBC 自动重登不需要 2FA
+**restart_gateway.sh 修复**（commit 4ceb8d8）：
+- `pkill -f "IbcGateway"` → `pkill -9 -f "IbcGateway"`（SIGKILL）：SIGTERM 会删 autorestart 文件导致每次重启要 2FA
+- **移除末尾 `exec ibcstart.sh`**：这是 23:29 和 23:48 两次二次断线的真实根因
+  - ibcstart.sh loop 与 launchd IBC 并发，每 18 分钟争抢 Gateway GUI 一次
+  - 正确做法：只 kill Gateway，让 launchd `com.quantrift.ibc.plist` 自动重启
 
 **Gateway 架构澄清**（2026-06-23 排查中发现）：
 - `com.quantrift.ibc.plist`（`KeepAlive: true`）由 launchd 管理，Gateway 退出后自动拉起
@@ -216,6 +225,11 @@ $100k 档手数演进：2024（5/4/3）→ 2025（6/5/4）→ 2026（9/7/6），
 - 干跑因 Error 326（clientId 占用）连续失败 5 次，旧代码触发 restart_gateway.sh，杀掉了正常运行的 Gateway
 - autorestart 文件被 SIGTERM 删除，后续每次重启都需要 2FA
 - restart_gateway.sh 的 ibcstart.sh 循环与 launchd IBC 并发，每隔 18 分钟干扰一次 Gateway → 23:29、23:48 两次再断线
+
+**mr_engine.py 监控完善**（commit 740e396）：
+- 每次 bar 处理成功（`else` 分支）后调用 `save_state()`，更新状态文件 mtime
+- 空仓期间 `save_state()` 从不被调用 → 状态文件永远 stale → `_mr_status()` 健康检查形同虚设
+- 修复后：stale > 2h 才真正意味着 bot 断连，不再误报
 
 ## 最近实现（2026-06-21，续）
 
