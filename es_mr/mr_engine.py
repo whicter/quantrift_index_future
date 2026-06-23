@@ -588,6 +588,9 @@ def main():
                 log.error(f"  ❌ 未预期错误: {e}", exc_info=True)
                 tg_alert(f"❌ MR 引擎异常: {e}")
                 needs_reconnect[0] = True  # 任何未预期错误都触发重连
+            else:
+                # 每次bar处理成功后更新状态文件时间戳（供_mr_status()健康检查用）
+                save_state(state)
 
 
 if __name__ == "__main__":
