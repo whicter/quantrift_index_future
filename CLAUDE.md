@@ -231,6 +231,12 @@ $100k 档手数演进：2024（5/4/3）→ 2025（6/5/4）→ 2026（9/7/6），
 - 空仓期间 `save_state()` 从不被调用 → 状态文件永远 stale → `_mr_status()` 健康检查形同虚设
 - 修复后：stale > 2h 才真正意味着 bot 断连，不再误报
 
+**`_mr_status()` pgrep 路径修复**（commit 2f76f52）：
+- `subprocess.run(["pgrep", ...])` → `subprocess.run(["/usr/bin/pgrep", ...])`
+- pm2 启动进程不走 login shell，PATH 受限，`/usr/bin` 不在其中
+- 导致每次心跳/连接消息都抛 `FileNotFoundError`，ib-bot-mr 状态一直显示"状态读取失败"
+- **教训：pm2 环境内调系统命令必须用绝对路径**，不能依赖 PATH
+
 ## 最近实现（2026-06-21，续）
 
 **VIX 数据自动更新**（commit 8929c80）：
