@@ -586,6 +586,7 @@ def main():
             except Exception as e:
                 log.error(f"  ❌ 未预期错误: {e}", exc_info=True)
                 tg_alert(f"❌ MR 引擎异常: {e}")
+                needs_reconnect[0] = True  # 任何未预期错误都触发重连
 
 
 if __name__ == "__main__":
