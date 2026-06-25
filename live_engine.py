@@ -34,13 +34,16 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import yaml
 from backtesting import Backtest
-from ib_insync import IB, ContFuture, MarketOrder, util
+from ib_insync import IB, ContFuture, MarketOrder, StopOrder, LimitOrder, util
 
 from indicators import compute_signals
 from strategy import ConfluenceStrategy
 
 import warnings
 warnings.filterwarnings("ignore")
+
+# orderId → (instrument, tf, "sl"/"tp")  — 用于 execDetails 路由
+_bracket_order_map: dict = {}
 
 # ── Telegram 告警（模块级，main() 初始化后填入 token/chat_id）────────────
 _TG: dict = {"token": "", "chat_id": ""}
@@ -208,7 +211,15 @@ BAR_CLOSE_DELAY = 15  # 收盘后等待秒数
 # ══════════════════════════════════════════════════════════════════════
 
 def _empty_inst_state():
-    return {tf: {"signed_contracts": 0} for tf in ["1h", "4h", "1d"]}
+    return {tf: {
+        "signed_contracts": 0,
+        "sl_order_id":  None,   # IB orderId of active STOP loss order
+        "tp_order_id":  None,   # IB orderId of active LIMIT take-profit order
+        "entry_price":  0.0,
+        "entry_atr":    0.0,
+        "entry_dir":    0,      # +1 long / -1 short
+        "sl_price":     0.0,    # current stop price (updated each bar)
+    } for tf in ["1h", "4h", "1d"]}
 
 
 def load_state(active_instruments: list) -> dict:
@@ -398,7 +409,7 @@ def fetch_bars(ib: IB, contract, tf: str, retries: int = 3) -> pd.DataFrame:
 # 回测重放
 # ══════════════════════════════════════════════════════════════════════
 
-_capture: dict = {"stage": 0, "dir": 0, "entry_price": 0.0, "entry_atr": 0.0}
+_capture: dict = {"stage": 0, "dir": 0, "entry_price": 0.0, "entry_atr": 0.0, "utTS": 0.0}
 
 
 class _CaptureStrategy(ConfluenceStrategy):
@@ -409,6 +420,10 @@ class _CaptureStrategy(ConfluenceStrategy):
         _capture["dir"]         = self._entry_dir
         _capture["entry_price"] = self._entry_price
         _capture["entry_atr"]   = self._entry_atr
+        try:
+            _capture["utTS"]    = float(self.data.utTS[-1])
+        except Exception:
+            _capture["utTS"]    = 0.0
 
 
 def _set_strategy_params(params: dict, n_contracts: int, multiplier: int):
@@ -455,6 +470,93 @@ def _stage_to_contracts(stage: int, n_contracts: int, tp1_portion: float) -> int
 TRADES_CSV = LOG_DIR / "trades.csv"
 
 
+# ══════════════════════════════════════════════════════════════════════
+# 止损/止盈单管理（Bracket Orders）
+# ══════════════════════════════════════════════════════════════════════
+
+def _cancel_order_if_active(ib: IB, order_id):
+    """撤销指定 orderId 的挂单；如已成交或不存在则静默跳过。"""
+    if order_id is None:
+        return
+    try:
+        for t in ib.openTrades():
+            if t.order.orderId == order_id:
+                ib.cancelOrder(t.order)
+                log.info(f"  已撤单 orderId={order_id}")
+                return
+        log.debug(f"  orderId={order_id} 不在挂单中（已成交或已撤）")
+    except Exception as e:
+        log.warning(f"  撤单 orderId={order_id} 异常: {e}")
+
+
+def place_bracket_for_tf(ib: IB, contract, tf_state: dict,
+                          atr_tp_mult: float, tf_key: str,
+                          dry_run: bool = False) -> tuple:
+    """
+    为某个 TF 持仓挂止损(STOP)和止盈(LIMIT)单。
+    tf_state 需含: entry_dir, entry_price, entry_atr, signed_contracts, sl_price
+    返回 (sl_order_id, tp_order_id)。
+    """
+    direction    = tf_state["entry_dir"]        # +1 多, -1 空
+    ep           = tf_state["entry_price"]
+    ea           = tf_state["entry_atr"]
+    sl_price     = tf_state["sl_price"]
+    tp_price     = ep + direction * atr_tp_mult * ea
+    qty          = abs(tf_state["signed_contracts"])
+    close_action = "SELL" if direction == 1 else "BUY"
+
+    if dry_run or qty == 0:
+        log.info(f"  [DRY-RUN] 挂止损 STOP @ {sl_price:.1f}  "
+                 f"止盈 LIMIT @ {tp_price:.1f}  {close_action} {qty}手")
+        return None, None
+
+    sl_ord = StopOrder(close_action, qty, round(sl_price, 2))
+    sl_ord.orderRef   = f"{tf_key}_sl"
+    sl_ord.tif        = 'GTC'
+    sl_ord.outsideRth = True
+    sl_trade = ib.placeOrder(contract, sl_ord)
+    ib.sleep(1)
+    sl_id = sl_trade.order.orderId
+    log.info(f"  挂止损 STOP  orderId={sl_id}: {close_action} {qty}手 @ {sl_price:.1f} GTC")
+
+    tp_ord = LimitOrder(close_action, qty, round(tp_price, 2))
+    tp_ord.orderRef   = f"{tf_key}_tp"
+    tp_ord.tif        = 'GTC'
+    tp_ord.outsideRth = True
+    tp_trade = ib.placeOrder(contract, tp_ord)
+    ib.sleep(1)
+    tp_id = tp_trade.order.orderId
+    log.info(f"  挂止盈 LIMIT orderId={tp_id}: {close_action} {qty}手 @ {tp_price:.1f} GTC")
+
+    return sl_id, tp_id
+
+
+def update_sl_for_tf(ib: IB, contract, tf_state: dict,
+                      new_sl_price: float, tf_key: str,
+                      dry_run: bool = False):
+    """撤旧止损单，以新 utTS 价格挂新止损单。返回新 orderId（或原 orderId）。"""
+    old_id       = tf_state.get("sl_order_id")
+    qty          = abs(tf_state["signed_contracts"])
+    close_action = "SELL" if tf_state["entry_dir"] == 1 else "BUY"
+
+    if dry_run or qty == 0:
+        log.info(f"  [DRY-RUN] 更新止损 STOP → {new_sl_price:.1f}")
+        return old_id
+
+    _cancel_order_if_active(ib, old_id)
+
+    sl_ord = StopOrder(close_action, qty, round(new_sl_price, 2))
+    sl_ord.orderRef   = f"{tf_key}_sl"
+    sl_ord.tif        = 'GTC'
+    sl_ord.outsideRth = True
+    sl_trade = ib.placeOrder(contract, sl_ord)
+    ib.sleep(1)
+    new_id = sl_trade.order.orderId
+    log.info(f"  更新止损 STOP orderId={new_id}: {close_action} {qty}手 @ {new_sl_price:.1f} "
+             f"（撤旧 {old_id}）")
+    return new_id
+
+
 def _log_trade(action: str, qty: int, sym: str, fill_price, instrument: str, tf: str):
     """追加一行到 trades.csv，静默失败，不影响交易逻辑。"""
     try:
@@ -470,26 +572,27 @@ def _log_trade(action: str, qty: int, sym: str, fill_price, instrument: str, tf:
 
 def place_order(ib: IB, contract, delta: int, dry_run: bool = False,
                 instrument: str = "", tf: str = ""):
+    """返回 (trade, fill_price)。dry_run 时 fill_price=0.0。"""
     if delta == 0:
-        return
+        return None, 0.0
     action = "BUY" if delta > 0 else "SELL"
     qty    = abs(delta)
     sym    = contract.symbol
 
     if dry_run:
         log.info(f"  [DRY-RUN] {action} {qty} {sym}（不实际下单）")
-        return
+        return None, 0.0
 
     order = MarketOrder(action, qty)
     trade = ib.placeOrder(contract, order)
     ib.sleep(3)
-    fill_price = trade.orderStatus.avgFillPrice or "待成交"
+    fill_price = float(trade.orderStatus.avgFillPrice or 0.0)
     log.info(f"  ✅ {action} {qty} {sym}  |  "
              f"状态: {trade.orderStatus.status}  "
-             f"成交均价: {fill_price}")
-    tg_alert(f"✅ 下单成功: {action} {qty} {sym} @ {fill_price}")
-    _log_trade(action, qty, sym, fill_price, instrument, tf)
-    return trade
+             f"成交均价: {fill_price or '待成交'}")
+    tg_alert(f"✅ 下单成功: {action} {qty} {sym} @ {fill_price or '待成交'}")
+    _log_trade(action, qty, sym, fill_price or "待成交", instrument, tf)
+    return trade, fill_price
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -502,6 +605,8 @@ def process_tf(ib: IB, contract, instrument: str, tf: str,
 
     multiplier = INSTRUMENTS[instrument]["multiplier"]
     inst_state = state[instrument]
+    tf_state   = inst_state[tf]
+    tf_key     = f"{instrument.lower()}_{tf}"
 
     log.info(f"\n── {instrument}/{tf.upper()} 信号处理 {'─' * 36}")
 
@@ -550,8 +655,9 @@ def process_tf(ib: IB, contract, instrument: str, tf: str,
         log.error(f"  [{instrument}/{tf}] 回测重放失败: {e}", exc_info=True)
         return
 
-    stage = _capture["stage"]
-    d     = _capture["dir"]
+    stage       = _capture["stage"]
+    d           = _capture["dir"]
+    current_utTS = _capture["utTS"]
 
     if d == 0 or stage == 0:
         new_signed = 0
@@ -560,8 +666,8 @@ def process_tf(ib: IB, contract, instrument: str, tf: str,
         new_signed  = d * _stage_to_contracts(stage, n, tp1_portion)
 
     # 4.5 幻象信号过滤：当状态文件空仓时，必须当前bar指标也满足入场条件
-    old_signed_pre = inst_state[tf]['signed_contracts']
-    if old_signed_pre == 0 and new_signed != 0:
+    old_signed = tf_state['signed_contracts']
+    if old_signed == 0 and new_signed != 0:
         lb       = df_sig.iloc[-1]
         min_sc   = int(params.get('min_score', 4))
         conflict = int(params.get('conflict_threshold', 6))
@@ -584,9 +690,7 @@ def process_tf(ib: IB, contract, instrument: str, tf: str,
                      f'bbmcDir={lb["bbmcDir"]:.0f} → 需要 bull>={min_sc}, bear<={conflict}')
             new_signed = 0
 
-    # 5. 对比状态，计算差额
-    old_signed = inst_state[tf]['signed_contracts']
-    delta      = new_signed - old_signed
+    delta = new_signed - old_signed
 
     def dir_str(s):
         if s > 0:  return f"多头 {abs(s)} 手"
@@ -596,16 +700,96 @@ def process_tf(ib: IB, contract, instrument: str, tf: str,
     log.info(f"  策略: {dir_str(new_signed)}  |  "
              f"上次: {dir_str(old_signed)}  |  差额: {delta:+d}")
 
-    # 6. 下单
-    if delta != 0:
-        place_order(ib, contract, delta, dry_run=dry_run, instrument=instrument, tf=tf)
-        if not dry_run:
-            inst_state[tf]["signed_contracts"] = new_signed
-            inst_state[tf]["last_update"]      = datetime.now(ET).isoformat()
-            save_state(state)
-            log.info(f"  [{instrument}/{tf}] 状态已保存: {dir_str(new_signed)}")
-    else:
+    atr_tp_mult = float(params.get("atr_tp2_mult", 2.0))
+
+    # ── 已有仓位：更新止损位（即使信号不变也要每bar更新）──────────────
+    if old_signed != 0 and current_utTS > 0:
+        entry_dir = tf_state.get("entry_dir", 0)
+        old_sl    = tf_state.get("sl_price", 0.0)
+        # 单向追踪：多头止损只涨不降，空头止损只跌不涨
+        should_update_sl = False
+        if entry_dir == 1 and current_utTS > old_sl:
+            should_update_sl = True
+        elif entry_dir == -1 and (old_sl == 0.0 or current_utTS < old_sl):
+            should_update_sl = True
+
+        if should_update_sl:
+            log.info(f"  止损更新: {old_sl:.1f} → {current_utTS:.1f}")
+            new_sl_id = update_sl_for_tf(
+                ib, contract, tf_state, current_utTS, tf_key, dry_run
+            )
+            if not dry_run:
+                # 从旧 orderId 注销，注册新 orderId
+                old_sl_id = tf_state.get("sl_order_id")
+                _bracket_order_map.pop(old_sl_id, None)
+                if new_sl_id:
+                    _bracket_order_map[new_sl_id] = (instrument, tf, "sl")
+                tf_state["sl_order_id"] = new_sl_id
+                tf_state["sl_price"]    = current_utTS
+                save_state(state)
+
+    # ── 无变化 ─────────────────────────────────────────────────────────
+    if delta == 0:
         log.info(f"  [{instrument}/{tf}] 仓位无变化，跳过")
+        return
+
+    # ── 关仓或换向：先撤销现有 bracket，再下市价单 ──────────────────────
+    if old_signed != 0:
+        old_sl_id = tf_state.get("sl_order_id")
+        old_tp_id = tf_state.get("tp_order_id")
+        if not dry_run:
+            _cancel_order_if_active(ib, old_sl_id)
+            _cancel_order_if_active(ib, old_tp_id)
+            _bracket_order_map.pop(old_sl_id, None)
+            _bracket_order_map.pop(old_tp_id, None)
+
+    _, fill_price = place_order(ib, contract, delta, dry_run=dry_run,
+                                instrument=instrument, tf=tf)
+
+    if dry_run:
+        return
+
+    # 更新 state
+    tf_state["signed_contracts"] = new_signed
+    tf_state["last_update"]      = datetime.now(ET).isoformat()
+
+    if new_signed == 0:
+        # 完全平仓：清空 bracket 字段
+        tf_state["sl_order_id"] = None
+        tf_state["tp_order_id"] = None
+        tf_state["entry_dir"]   = 0
+        tf_state["entry_price"] = 0.0
+        tf_state["entry_atr"]   = 0.0
+        tf_state["sl_price"]    = 0.0
+        save_state(state)
+        log.info(f"  [{instrument}/{tf}] 状态已保存: {dir_str(new_signed)}")
+        return
+
+    # 有新仓位（新开或换向）：挂 bracket 止损/止盈单
+    entry_dir = 1 if new_signed > 0 else -1
+    # 优先使用市价单成交价，fallback 到最后一根 bar 收盘价
+    ep = fill_price if fill_price else float(df_sig["Close"].iloc[-1])
+    ea = last_atr
+    sl = current_utTS if current_utTS > 0 else (ep - entry_dir * sl_mult * ea)
+
+    tf_state["entry_dir"]   = entry_dir
+    tf_state["entry_price"] = ep
+    tf_state["entry_atr"]   = ea
+    tf_state["sl_price"]    = sl
+    save_state(state)
+
+    sl_id, tp_id = place_bracket_for_tf(
+        ib, contract, tf_state, atr_tp_mult, tf_key, dry_run
+    )
+    if sl_id:
+        _bracket_order_map[sl_id] = (instrument, tf, "sl")
+    if tp_id:
+        _bracket_order_map[tp_id] = (instrument, tf, "tp")
+    tf_state["sl_order_id"] = sl_id
+    tf_state["tp_order_id"] = tp_id
+    save_state(state)
+    log.info(f"  [{instrument}/{tf}] 状态已保存: {dir_str(new_signed)}  "
+             f"SL={sl:.1f}  TP={ep + entry_dir * atr_tp_mult * ea:.1f}")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -841,7 +1025,69 @@ def main():
             log.warning("⚠️  Error 2105: HMDS ushmds 断连（等待自动恢复）")
     ib.errorEvent += on_error
 
+    # ── Bracket 成交回调：止损/止盈单成交时更新状态 ───────────────────
+    def on_exec_details(trade, fill):
+        oid = fill.execution.orderId
+        if oid not in _bracket_order_map:
+            return
+        inst, tf_name, order_type = _bracket_order_map.pop(oid)
+        tf_state_   = state[inst][tf_name]
+        fp          = fill.execution.price
+        qty_        = fill.execution.shares
+
+        log.info(f"  [BRACKET] {inst}/{tf_name} {order_type.upper()} 成交: "
+                 f"{qty_}手 @ {fp:.2f}  orderId={oid}")
+        tg_alert(f"{'🛑 SL' if order_type == 'sl' else '✅ TP'} {inst}/{tf_name} "
+                 f"{qty_}手 @ {fp:.2f}")
+
+        # 撤销对向单
+        cancel_id = (tf_state_.get("tp_order_id") if order_type == "sl"
+                     else tf_state_.get("sl_order_id"))
+        _cancel_order_if_active(ib, cancel_id)
+        _bracket_order_map.pop(cancel_id, None)
+
+        # 更新持仓状态
+        tf_state_["signed_contracts"] = 0
+        tf_state_["sl_order_id"]  = None
+        tf_state_["tp_order_id"]  = None
+        tf_state_["entry_dir"]    = 0
+        tf_state_["entry_price"]  = 0.0
+        tf_state_["entry_atr"]    = 0.0
+        tf_state_["sl_price"]     = 0.0
+        tf_state_["last_update"]  = datetime.now(ET).isoformat()
+        save_state(state)
+        log.info(f"  [{inst}/{tf_name}] bracket 触发后状态已清零（空仓）")
+
+    ib.execDetailsEvent += on_exec_details
+
+    # ── 重连后恢复 bracket 注册 ──────────────────────────────────────
+    def _restore_bracket_map():
+        """从 open orders 中重建 _bracket_order_map（重连后使用）。"""
+        try:
+            open_trades = ib.openTrades()
+            ib.sleep(1)
+            for t in open_trades:
+                ref = getattr(t.order, "orderRef", "")
+                if not ref:
+                    continue
+                # orderRef 格式: "nq_4h_sl" / "nq_1d_tp" 等
+                parts = ref.rsplit("_", 1)
+                if len(parts) != 2 or parts[1] not in ("sl", "tp"):
+                    continue
+                order_type = parts[1]
+                prefix     = parts[0]  # e.g. "nq_4h"
+                for inst_ in active_instruments:
+                    for tf_ in ["1h", "4h", "1d"]:
+                        if prefix == f"{inst_.lower()}_{tf_}":
+                            oid_ = t.order.orderId
+                            _bracket_order_map[oid_] = (inst_, tf_, order_type)
+                            log.info(f"  恢复 bracket 注册: orderId={oid_}  "
+                                     f"{inst_}/{tf_} {order_type}")
+        except Exception as e:
+            log.warning(f"  _restore_bracket_map 失败: {e}")
+
     do_connect()
+    _restore_bracket_map()
 
     def build_params(inst, tf):
         p = inst_tf_configs[inst][tf].copy()
@@ -914,6 +1160,7 @@ def main():
                     except Exception: pass
                     _time.sleep(10)
                     do_connect()
+                    _restore_bracket_map()
                     continue
 
                 now_et = datetime.now(ET)
