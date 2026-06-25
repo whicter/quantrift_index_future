@@ -91,6 +91,7 @@ class ConfluenceStrategy(Strategy):
         self._entry_price = 0.0
         self._entry_atr   = 0.0
         self._entry_dir   = 0   # 1=多, -1=空
+        self._sl_locked   = 0.0  # 单向追踪止损：多头只涨不降，空头只降不涨
         # 固定交易 size
         self._trade_size = (self.n_contracts * self.contract_size
                             if self.n_contracts > 0 else None)
@@ -100,6 +101,7 @@ class ConfluenceStrategy(Strategy):
         self._entry_price = float(self.data.Close[-1])
         self._entry_atr   = float(self.data.atrVal[-1])
         self._entry_dir   = 1
+        self._sl_locked   = float(self.data.utTS[-1])  # 多头止损：只能上移
         self.buy(size=self._trade_size)
 
     def _open_short(self):
@@ -107,6 +109,7 @@ class ConfluenceStrategy(Strategy):
         self._entry_price = float(self.data.Close[-1])
         self._entry_atr   = float(self.data.atrVal[-1])
         self._entry_dir   = -1
+        self._sl_locked   = float(self.data.utTS[-1])  # 空头止损：只能下移
         self.sell(size=self._trade_size)
 
     def _reset_stage(self):
@@ -180,8 +183,13 @@ class ConfluenceStrategy(Strategy):
             tp1_price = ep + d * self.atr_tp1_mult * ea
             tp2_price = ep + d * self.atr_tp2_mult * ea
 
-            # ① 止损：UT Bot 动态追踪止损线
-            sl_price = float(self.data.utTS[-1])
+            # ① 止损：UT Bot 单向追踪止损线（多头只涨不降，空头只降不涨）
+            current_utTS = float(self.data.utTS[-1])
+            if d == 1:
+                self._sl_locked = max(self._sl_locked, current_utTS)
+            else:
+                self._sl_locked = min(self._sl_locked, current_utTS)
+            sl_price = self._sl_locked
             hit_sl = (d == 1 and close < sl_price) or (d == -1 and close > sl_price)
             if hit_sl:
                 self.position.close()
