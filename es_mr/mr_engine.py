@@ -536,16 +536,14 @@ def main():
     _last_reconnect = [0.0]
 
     def on_error(reqId, errorCode, errorString, contract_):
-        if errorCode in (1100, 1101, 2110):
+        if errorCode in (1100, 1101):
             needs_reconnect[0] = True
             log.warning(f"⚠ Error {errorCode}: IB 连接异常，将触发重连")
             tg_alert(f"⚠ MR 引擎 Error {errorCode}，正在重连...")
-        elif errorCode == 2105:
-            now = _time.time()
-            if now - _last_reconnect[0] > 60:
-                _last_reconnect[0] = now
-                needs_reconnect[0] = True
-                log.warning("⚠ Error 2105: HMDS 断连，触发重连")
+        elif errorCode in (2105, 2110):
+            # 2105=HMDS断连（会自动恢复）, 2110=TWS→IBKR断连（会自动恢复）
+            # fetch_bars 有 3 次重试兜底，不触发重连（否则连接时收到 2105 会死循环）
+            log.warning(f"⚠ Error {errorCode}: {errorString}（等待自动恢复）")
 
     ib.errorEvent += on_error
     do_connect()

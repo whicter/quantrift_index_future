@@ -146,33 +146,39 @@ def update_vix_csv(ib: IB):
 
 def _mr_status() -> str:
     """读取 ib-bot-mr 的状态文件，返回单行状态描述。"""
-    import subprocess
+    import subprocess, time as _t
     try:
-        # 检查进程是否存活
         r = subprocess.run(["/usr/bin/pgrep", "-f", "mr_engine.py"], capture_output=True)
         alive = r.returncode == 0
 
-        # 读状态文件
         if MR_STATE_FILE.exists():
             with open(MR_STATE_FILE) as f:
                 mr = json.load(f)
             pos = mr.get("signed_contracts", 0)
             pos_str = f"{pos:+d}手" if pos != 0 else "空仓"
-            import time as _t
-            stale = (_t.time() - MR_STATE_FILE.stat().st_mtime) > 7200  # >2h 未更新
-            # 进程存活但状态文件 >2h 未更新 = 连接可能断了
-            if alive and stale:
-                status = "⚠️ 连接可能断开（状态文件>2h未更新）"
-            elif alive:
-                status = "✅"
-            else:
+
+            stale_secs = _t.time() - MR_STATE_FILE.stat().st_mtime
+            stale_h    = stale_secs / 3600
+
+            # 只在交易时段内才检查 stale（休市期间不更新是正常的）
+            now_et    = datetime.now(ET)
+            wd        = now_et.weekday()
+            in_market = not (wd == 5
+                             or (wd == 6 and now_et.hour < 18)
+                             or now_et.hour == 17)
+
+            if not alive:
                 status = "❌ 进程不存在"
+            elif in_market and stale_secs > 7200:
+                status = f"❌ 状态文件 {stale_h:.1f}h 未更新"
+            else:
+                status = "✅"
             return f"ib-bot-mr（ES MR）{status}  MESZ6 {pos_str}"
         else:
             return f"ib-bot-mr（ES MR）{'✅' if alive else '❌ 未运行'}  状态文件不存在"
     except Exception as e:
         log.error(f"_mr_status() 异常: {e}", exc_info=True)
-        return f"ib-bot-mr（ES MR）⚠️ 状态读取失败: {e}"
+        return f"ib-bot-mr（ES MR）❌ 状态读取失败: {e}"
 
 
 # ── 路径 / 时区 ────────────────────────────────────────────────────────
