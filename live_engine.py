@@ -897,7 +897,7 @@ def main():
         """连续连接失败后，kill Gateway 并通过 IBC 重启（自动登录）。"""
         import subprocess
         now = _time.time()
-        if now - _last_gw_restart[0] < 7200:   # 2小时内不重复重启
+        if now - _last_gw_restart[0] < 1800:   # 30分钟内不重复重启
             log.warning(f"  Gateway 重启冷却中（距上次 {now - _last_gw_restart[0]:.0f}s），跳过")
             return
         _last_gw_restart[0] = now
