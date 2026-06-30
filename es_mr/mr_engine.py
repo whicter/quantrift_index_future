@@ -547,6 +547,7 @@ def main():
 
     ib.errorEvent += on_error
     do_connect()
+    save_state(state)  # 初始连接成功后刷新状态文件时间戳
 
     # ── 立即运行模式 ──────────────────────────────────────────────────
     if args.run_now:
@@ -566,6 +567,7 @@ def main():
             needs_reconnect[0] = False
             _time.sleep(5)
             do_connect()
+            save_state(state)  # 重连成功后刷新状态文件时间戳
             continue
 
         if not is_market_open(now_et):
