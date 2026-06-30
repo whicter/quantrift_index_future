@@ -1,0 +1,50 @@
+# NQ Mean Reversion Strategy — 参数配置（优化后）
+# 基线回测：2024-03-01 ~ 2026-06-24，33笔，WR 48.5%，Sharpe 1.015，MaxDD -0.36%
+
+# 数据（相对于项目根路径）
+data_file: data/NQF_1h_2024-03-01_2026-06-24.csv
+start: "2024-03-01"
+end: "2026-06-24"
+interval: "1h"
+
+# 合约
+contract_size: 2        # MNQ $2/点
+commission: 0.00002
+margin: 0.05
+cash: 100000
+n_contracts: 1
+
+# 实盘风险参数（ATR 动态定仓）
+risk_pct: 1.0           # 每笔风险 = 净值 × 1.0%
+# 手数 = max(1, round(净值 × 1% / (ATR × sl_mult × $2)))
+# 示例：$32k × 1% / (60pt × 1.0 × $2) = $320/$120 = 2-3 手
+
+# 布林带
+bb_len: 20
+bb_mult: 2.0
+
+# RSI（超卖阈值，NQ 波动大，30 比 ES 的 28 捕获更多信号）
+rsi_len: 14
+rsi_os: 30.0            # NQ 优化值（ES MR 为 28）
+
+# ATR
+atr_len: 14
+
+# VWAP 偏离倍数
+vwap_atr_mult: 2.0
+
+# 市场过滤器（ADX < 25 才入场，排除趋势行情）
+adx_len: 14
+adx_threshold: 25.0
+
+# 入场评分（3 个全中才入场）
+min_score: 3
+
+# 出场
+sl_mult: 1.0
+tp_atr_mult: 1.5        # NQ 优化：1.5 比 2.0 更快出场，胜率更高
+max_bars: 12            # NQ 优化：12 根 1h bar（12h），比 ES 的 8 更宽容
+
+# 策略方向：只做多
+# 实测空头 WR 26.3%，净亏损，不做空
+long_only: true

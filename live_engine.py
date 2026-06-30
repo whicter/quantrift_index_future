@@ -180,12 +180,49 @@ def _mr_status() -> str:
         log.error(f"_mr_status() 异常: {e}", exc_info=True)
         return f"ib-bot-mr（ES MR）❌ 状态读取失败: {e}"
 
+def _nq_mr_status() -> str:
+    """读取 ib-bot-nq-mr 的状态文件，返回单行状态描述。"""
+    import subprocess, time as _t
+    try:
+        r = subprocess.run(["/usr/bin/pgrep", "-f", "nq_mr_engine.py"], capture_output=True)
+        alive = r.returncode == 0
+
+        if NQ_MR_STATE_FILE.exists():
+            with open(NQ_MR_STATE_FILE) as f:
+                nq = json.load(f)
+            pos = nq.get("signed_contracts", 0)
+            pos_str = f"{pos:+d}手" if pos != 0 else "空仓"
+
+            stale_secs = _t.time() - NQ_MR_STATE_FILE.stat().st_mtime
+            stale_h    = stale_secs / 3600
+
+            now_et    = datetime.now(ET)
+            wd        = now_et.weekday()
+            in_market = not (wd == 5
+                             or (wd == 6 and now_et.hour < 18)
+                             or now_et.hour == 17)
+
+            if not alive:
+                status = "❌ 进程不存在"
+            elif in_market and stale_secs > 7200:
+                status = f"❌ 状态文件 {stale_h:.1f}h 未更新"
+            else:
+                status = "✅"
+            return f"ib-bot-nq-mr（NQ MR）{status}  MNQZ6 {pos_str}"
+        else:
+            return (f"ib-bot-nq-mr（NQ MR）{'✅' if alive else '❌ 未运行'}  状态文件不存在")
+    except Exception as e:
+        log.error(f"_nq_mr_status() 异常: {e}", exc_info=True)
+        return f"ib-bot-nq-mr（NQ MR）❌ 状态读取失败: {e}"
+
+
 
 # ── 路径 / 时区 ────────────────────────────────────────────────────────
 BASE_DIR      = Path(__file__).parent
 LOG_DIR       = BASE_DIR / "logs"
 STATE_FILE    = BASE_DIR / "live_state.json"
-MR_STATE_FILE = BASE_DIR / "es_mr" / "mr_state.json"
+MR_STATE_FILE    = BASE_DIR / "es_mr" / "mr_state.json"
+NQ_MR_STATE_FILE = BASE_DIR / "nq_mr" / "nq_mr_state.json"
 VIX_CSV       = BASE_DIR / "data" / "VIX_1d.csv"
 LOG_DIR.mkdir(exist_ok=True)
 ET = ZoneInfo("America/New_York")
@@ -969,6 +1006,7 @@ def main():
                     alert_parts.append("⚠️ 持仓不一致，请手动核查 live_state.json！")
                     alert_parts.extend(mismatch_lines)
                 alert_parts.append(_mr_status())
+                alert_parts.append(_nq_mr_status())
                 tg_alert("\n".join(alert_parts))
                 return
             except Exception as exc:
@@ -1222,7 +1260,8 @@ def main():
                         f"✅ ib-bot（趋势 NQ+ES）\n"
                         f"  NQ: 1H{nq_pos['1h']:+d} / 4H{nq_pos['4h']:+d} / 1D{nq_pos['1d']:+d}  净仓{nq_net:+d}手\n"
                         f"  ES: 4H{es_pos['4h']:+d} / 1D{es_pos['1d']:+d}  净仓{es_net:+d}手\n"
-                        f"{_mr_status()}"
+                        f"{_mr_status()}\n"
+                        f"{_nq_mr_status()}"
                     )
                     tg_alert(hb_msg)
 
