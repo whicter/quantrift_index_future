@@ -29,9 +29,11 @@ class MeanReversionStrategy(Strategy):
     # VWAP 偏离倍数（价格必须在 VWAP 以下 vwap_atr_mult × ATR）
     vwap_atr_mult: float = 2.0
 
-    # 市场过滤器（只用 ADX，CI 过滤与信号条件互斥，已禁用）
+    # 市场过滤器
     adx_len: int         = 14
     adx_threshold: float = 25.0
+    ci_len: int          = 14
+    ci_threshold: float  = 0.0   # 0 = 禁用；>0 时要求 CI >= 此值才入场
 
     # 入场（3 个信号全中才入场）
     min_score: int = 3
@@ -46,7 +48,7 @@ class MeanReversionStrategy(Strategy):
 
     def init(self):
         from es_mr.indicators_mr import (
-            compute_bb, compute_rsi, compute_atr, compute_adx, compute_vwap,
+            compute_bb, compute_rsi, compute_atr, compute_adx, compute_vwap, compute_ci,
         )
 
         idx = pd.DatetimeIndex(self.data.index)
@@ -67,10 +69,13 @@ class MeanReversionStrategy(Strategy):
             # 无成交量：不使用 VWAP 信号（min_score=3 不可达，策略不交易）
             vwap_s = pd.Series(np.nan, index=idx)
 
+        ci_s = compute_ci(high_s, low_s, close_s, self.ci_len)
+
         self.bb_lower = self.I(lambda: bb_lower_s.values, name="bb_lower")
         self.rsi      = self.I(lambda: rsi_s.values,      name="rsi")
         self.atr      = self.I(lambda: atr_s.values,      name="atr")
         self.adx      = self.I(lambda: adx_s.values,      name="adx")
+        self.ci       = self.I(lambda: ci_s.values,       name="ci")
         self.vwap     = self.I(lambda: vwap_s.values,     name="vwap")
 
         self._bars_held = 0
@@ -114,6 +119,10 @@ class MeanReversionStrategy(Strategy):
 
         # ADX 过滤：只在非趋势行情入场
         if self.adx[-1] >= self.adx_threshold:
+            return
+
+        # CI 过滤：ci_threshold > 0 时，只在震荡市入场
+        if self.ci_threshold > 0 and self.ci[-1] < self.ci_threshold:
             return
 
         rsi   = self.rsi[-1]
