@@ -9,58 +9,35 @@
 ---
 
 ## Phase 1：文档与规划
-
-| 状态 | 任务 | 说明 |
-|------|------|------|
-| ✅ | 创建 `nq_mr/` 文件夹 | 与趋势引擎、es_mr 完全隔离 |
-| ✅ | 写 README.md | 策略概述、入场出场条件、文件结构 |
-| ✅ | 写 WIKI.md | 详细设计文档 |
-| ✅ | 写 TASK.md | 本文件 |
-| ✅ | 写 LEARNING.md | 初始化，待填充回测结果 |
-
----
+| 状态 | 任务 |
+|------|------|
+| ✅ | 创建 nq_mr/ 文件夹与文档 |
+| ✅ | 确认与 es_mr 的参数差异 |
 
 ## Phase 2：数据准备
+| 状态 | 任务 |
+|------|------|
+| ✅ | 确认 NQ 1h 数据（NQF_1h_2024-03-01_2026-06-24.csv，13659 bars）|
+| ✅ | 确认 Volume 完整，VWAP 可用 |
+| ✅ | 测试 4H 周期 → 无信号，放弃 |
 
-| 状态 | 任务 | 说明 |
-|------|------|------|
-| ⏳ | 下载 NQ 1h 历史数据 | 复用 `data/NQF_1h_*.csv` 或从 IB 重新拉取 |
-| ⏳ | 确认数据时间范围 | 至少 2 年（2024-2026）|
-| ⏳ | 确认 Volume 数据完整性 | VWAP 计算需要 Volume |
-
----
-
-## Phase 3：策略开发
-
-| 状态 | 任务 | 文件 | 说明 |
-|------|------|------|------|
-| ⏳ | 复用 es_mr 指标库 | `es_mr/indicators_mr.py` | BB/RSI/VWAP/ADX/CI 均可复用 |
-| ⏳ | 写策略类 | `strategy_nq_mr.py` | 继承或复制 MeanReversionStrategy |
-| ⏳ | 初始回测 | `backtest_nq_mr.py` | 用 ES 参数作为基线 |
-| ⏳ | 参数优化 | — | 针对 NQ 波动性调整（重点：rsi_os、max_bars）|
-
-### 优化目标
-- Sharpe Ratio > 0.5
-- Win Rate > 50%
-- Profit Factor > 1.5
-- 交易笔数 ≥ 20（约 1 笔/月）
-- MaxDD < 20%
-
-### 重点关注参数（NQ vs ES 差异）
-| 参数 | ES MR（当前） | NQ MR（待优化） |
-|------|------------|--------------|
-| rsi_os | 28 | 待定（NQ 超卖程度更深）|
-| max_bars | 8 | 待定（NQ 反弹可能更快）|
-| adx_threshold | 25 | 待定 |
-| vwap_atr_mult | 2.0 | 待定 |
-
----
+## Phase 3：策略回测
+| 状态 | 任务 |
+|------|------|
+| ✅ | 基线回测（ES 参数）→ Sharpe 0.58，23笔 |
+| ✅ | 参数网格搜索（Round 1: rsi_os/adx/vwap/bb）|
+| ✅ | 参数网格搜索（Round 2: max_bars/tp_atr_mult/min_score）|
+| ✅ | 双向测试 → 空头 WR 26.3%，确认 long_only |
+| ✅ | 最优参数确认（rsi_os=30, tp=1.5, max_bars=12, Sharpe=1.015）|
+| ✅ | IS/OOS 验证（无过拟合）|
+| ✅ | 逐年分析（2024/2025/2026 均盈利）|
 
 ## Phase 4：实盘引擎
-
-| 状态 | 任务 | 说明 |
-|------|------|------|
-| ⏳ | 写实盘引擎 | `nq_mr_engine.py`，参考 `es_mr/mr_engine.py` |
-| ⏳ | 分配 clientId | 当前已用：20（主bot）、21（es_mr）、2（stock-alert）|
-| ⏳ | 注册 pm2 进程 | `pm2 start nq_mr_engine.py --name ib-bot-nq-mr` |
-| ⏳ | 上线前纸交易验证 | --dry-run 模式运行至少 2 周 |
+| 状态 | 任务 |
+|------|------|
+| ✅ | 写 nq_mr_engine.py（MNQ 次季合约，clientId=22）|
+| ✅ | live_engine.py 加入 _nq_mr_status() 心跳监控 |
+| ✅ | 确认 clientId=22 无冲突 |
+| ⏳ | 干跑测试（--run-now --dry-run）|
+| ⏳ | pm2 注册 + 模拟盘观察 2 周 |
+| ⏳ | 切换实盘 |

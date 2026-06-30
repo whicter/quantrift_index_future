@@ -2,51 +2,56 @@
 
 ## 策略原理
 
-均值回归假设：价格短期偏离均值后大概率回归。
-NQ 相比 ES 的特点：
-- 波动性更高（ATR 约 200-400pt/天 vs ES 约 40-80pt）
-- 科技股集中，情绪驱动更强，急跌后反弹更快
-- 日内成交量分布更集中在开盘/收盘
+均值回归：价格短期极端偏离后大概率回归均值。
+NQ 特点：科技股集中，情绪驱动强，急跌后有时快速反弹，有时继续下跌（趋势强于 ES）。
 
-## 指标复用（来自 es_mr/indicators_mr.py）
+## 为什么 NQ MR 比 ES MR 难？
 
-| 指标 | 函数 | 用途 |
-|------|------|------|
-| 布林带 | `compute_bb` | 识别价格极端偏离 |
-| RSI | `compute_rsi` | 超卖信号 |
-| VWAP | `compute_vwap` | 均值锚点，价格偏离参考 |
-| ATR | `compute_atr` | 动态止盈止损计算 |
-| ADX | `compute_adx` | 趋势强度过滤 |
-| CI | `compute_ci` | 备选：震荡市过滤（已知与MR信号互斥）|
+1. NQ 趋势性更强 → 触发 RSI<30+BB+VWAP 三合一时，往往是趋势延续而非反转
+2. NQ ATR 更大（约 60pt vs ES 12pt）→ 止损更容易被触发
+3. 胜率 48.5% vs ES 的 62.1% → NQ 信号质量偏低
+4. 信号更稀疏（33笔/2年 vs ES 更多）
 
-## 信号评分机制
+## 为什么 4H 没有信号？
+
+4H 周期下 min_score=3（RSI+BB+VWAP 同时触发）在 2 年内仅 0-2 次。
+NQ 的 4H ATR 极大，VWAP 偏离条件（< VWAP - 2×ATR）几乎不可能在 4H 同时满足 RSI 和 BB。
+结论：固定使用 1H 周期。
+
+## 为什么不做空？
+
+回测实测：
+- 多头：33笔，WR 48.5%，净盈 $1016
+- 空头：38笔，WR 26.3%，净亏 $1251
+
+NQ 处于长期牛市（AI + 科技周期），超买时往往继续涨，不反转。
+
+## 参数设计
+
+### rsi_os = 30（vs ES 的 28）
+NQ 更易出现深度超卖（RSI < 30），阈值稍高捕获更多信号，且不降低质量。
+
+### tp_atr_mult = 1.5（vs ES 的 2.0）
+NQ 反弹往往快速但不持续，过高的止盈目标导致很多本可获利的交易最终亏损。
+1.5×ATR 比 2.0×ATR Sharpe 提升明显（1.015 vs 0.713）。
+
+### max_bars = 12（vs ES 的 8）
+NQ 均值回归需要更长时间，8 根 bar（8h）太短，12h 给予足够时间。
+
+## 仓位计算
 
 ```
-bull_score = 0
-if RSI < rsi_os:          bull_score += 1   # 超卖
-if close <= BB_lower:     bull_score += 1   # 价格在下轨以下
-if close < VWAP - k*ATR:  bull_score += 1   # 价格大幅低于 VWAP
+风险金额 = 账户净值 × 1.0%
+止损金额 = ATR × 1.0 × $2（MNQ）
+手数 = max(1, round(风险金额 / 止损金额))
 
-if ADX < adx_threshold and bull_score >= min_score:
-    → 入场做多
+$32k × 1% / (60pt × $2) = $320 / $120 = 2-3 手 MNQ
 ```
 
-## 出场逻辑（按优先级）
+## 实盘架构
 
-1. **止损**：close < entry - sl_mult × ATR（由 backtesting.py SL 参数处理）
-2. **时间止损**：持仓 > max_bars 根 bar 强平
-3. **ATR 止盈**：close >= entry + tp_atr_mult × ATR
-4. **VWAP 止盈**：close >= VWAP（价格回归均值）
-
-## 与 ES MR 的架构差异
-
-ES MR 只做多（牛市背景），NQ MR 待回测确认是否双向：
-- 若 NQ 空头 MR 胜率 > 50%，可加空头方向
-- 需要独立的 `bear_score` 评分 + `rsi_ob` 超买阈值
-
-## 隔离架构
-
-- clientId 独立（与主 bot、es_mr 不同）
-- 状态文件：`nq_mr/mr_state.json`
-- 日志文件：`logs/nq_mr_YYYYMMDD.log`
-- pm2 进程名：`ib-bot-nq-mr`
+- 合约：MNQ 次季（跳过当期，避免交割流动性风险）
+- clientId：22
+- 状态文件：nq_mr/nq_mr_state.json
+- 心跳监控：live_engine.py _nq_mr_status()
+- 每日限制：最多 1 笔入场
