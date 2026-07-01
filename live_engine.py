@@ -42,6 +42,10 @@ from strategy import ConfluenceStrategy
 import warnings
 warnings.filterwarnings("ignore")
 
+class HMDSUnavailableError(Exception):
+    """HMDS ushmds 离线时跳过 bar，不触发重连。"""
+    pass
+
 # orderId → (instrument, tf, "sl"/"tp")  — 用于 execDetails 路由
 _bracket_order_map: dict = {}
 
@@ -217,12 +221,75 @@ def _nq_mr_status() -> str:
 
 
 
+def _gap_status() -> str:
+    """读取 ib-bot-gap 的状态文件，返回单行状态描述。"""
+    import subprocess, time as _t
+    try:
+        r = subprocess.run(["/usr/bin/pgrep", "-f", "gap_engine.py"], capture_output=True)
+        alive = r.returncode == 0
+        if GAP_STATE_FILE.exists():
+            with open(GAP_STATE_FILE) as f:
+                g = json.load(f)
+            pos = g.get("signed_contracts", 0)
+            traded = g.get("today_traded", False)
+            pos_str = f"{pos:+d}手" if pos != 0 else ("已交易" if traded else "空仓")
+            stale_secs = _t.time() - GAP_STATE_FILE.stat().st_mtime
+            stale_h    = stale_secs / 3600
+            now_et = datetime.now(ET)
+            wd = now_et.weekday()
+            in_market = not (wd == 5 or (wd == 6 and now_et.hour < 18))
+            if not alive:
+                status = "❌ 进程不存在"
+            elif in_market and stale_secs > 86400:
+                status = f"❌ 状态文件 {stale_h:.1f}h 未更新"
+            else:
+                status = "✅"
+            return f"ib-bot-gap（Gap回归）{status}  MNQZ6 {pos_str}"
+        else:
+            return f"ib-bot-gap（Gap回归）{'✅' if alive else '❌ 未运行'}  状态文件不存在"
+    except Exception as e:
+        log.error(f"_gap_status() 异常: {e}", exc_info=True)
+        return f"ib-bot-gap（Gap回归）❌ 状态读取失败: {e}"
+
+
+def _nq_range_status() -> str:
+    """读取 ib-bot-nq-range 的状态文件，返回单行状态描述。"""
+    import subprocess, time as _t
+    try:
+        r = subprocess.run(["/usr/bin/pgrep", "-f", "nq_range_engine.py"], capture_output=True)
+        alive = r.returncode == 0
+        if NQ_RANGE_STATE_FILE.exists():
+            with open(NQ_RANGE_STATE_FILE) as f:
+                nr = json.load(f)
+            pos = nr.get("signed_contracts", 0)
+            pos_str = f"{pos:+d}手" if pos != 0 else "空仓"
+            stale_secs = _t.time() - NQ_RANGE_STATE_FILE.stat().st_mtime
+            stale_h    = stale_secs / 3600
+            now_et = datetime.now(ET)
+            wd = now_et.weekday()
+            in_market = not (wd == 5 or (wd == 6 and now_et.hour < 18) or now_et.hour == 17)
+            if not alive:
+                status = "❌ 进程不存在"
+            elif in_market and stale_secs > 7200:
+                status = f"❌ 状态文件 {stale_h:.1f}h 未更新"
+            else:
+                status = "✅"
+            return f"ib-bot-nq-range（NQ Range）{status}  MNQZ6 {pos_str}"
+        else:
+            return f"ib-bot-nq-range（NQ Range）{'✅' if alive else '❌ 未运行'}  状态文件不存在"
+    except Exception as e:
+        log.error(f"_nq_range_status() 异常: {e}", exc_info=True)
+        return f"ib-bot-nq-range（NQ Range）❌ 状态读取失败: {e}"
+
+
 # ── 路径 / 时区 ────────────────────────────────────────────────────────
 BASE_DIR      = Path(__file__).parent
 LOG_DIR       = BASE_DIR / "logs"
 STATE_FILE    = BASE_DIR / "live_state.json"
 MR_STATE_FILE    = BASE_DIR / "es_mr" / "mr_state.json"
 NQ_MR_STATE_FILE = BASE_DIR / "nq_mr" / "nq_mr_state.json"
+GAP_STATE_FILE      = BASE_DIR / "gap_reversion" / "gap_state.json"
+NQ_RANGE_STATE_FILE = BASE_DIR / "nq_range" / "nq_range_state.json"
 VIX_CSV       = BASE_DIR / "data" / "VIX_1d.csv"
 LOG_DIR.mkdir(exist_ok=True)
 ET = ZoneInfo("America/New_York")
@@ -432,6 +499,10 @@ def fetch_bars(ib: IB, contract, tf: str, retries: int = 3) -> pd.DataFrame:
         if attempt < retries:
             ib.sleep(5)
     else:
+        # 检查是否是 HMDS 离线导致的 timeout
+        err_str = str(last_err).lower()
+        if 'timeout' in err_str or 'empty' in err_str or 'cancelled' in err_str:
+            raise HMDSUnavailableError(f"HMDS 离线，跳过此 bar: {last_err}")
         raise RuntimeError(f"数据拉取失败，触发重连: {last_err}") from last_err
 
     df = util.df(bars).rename(columns={
@@ -659,6 +730,8 @@ def process_tf(ib: IB, contract, instrument: str, tf: str,
         df = fetch_bars(ib, contract, tf)
     except Exception as e:
         log.error(f"  [{instrument}/{tf}] 数据拉取失败: {e}")
+        if isinstance(e, HMDSUnavailableError):
+            raise
         raise RuntimeError(f"数据拉取失败，触发重连: {e}") from e
 
     # 2. 计算指标，读取当前 ATR
@@ -1007,6 +1080,8 @@ def main():
                     alert_parts.extend(mismatch_lines)
                 alert_parts.append(_mr_status())
                 alert_parts.append(_nq_mr_status())
+                alert_parts.append(_gap_status())
+                alert_parts.append(_nq_range_status())
                 tg_alert("\n".join(alert_parts))
                 return
             except Exception as exc:
@@ -1045,6 +1120,7 @@ def main():
 
     # Error 1100/1101/2105 → 触发重连；2110 只记日志不重连
     needs_reconnect    = [False]
+    _hmds_ok           = [True]   # False when 2105 received; True when 2106 received
     _last_reconnect_time = [0.0]
     _last_tg_error_time  = [0.0]   # Telegram 告警冷却（5分钟）
     def on_error(reqId, errorCode, errorString, contract):
@@ -1063,10 +1139,13 @@ def main():
             # （重连后立刻收到 2110 → 再重连 → 死循环，故移除）
             log.warning("⚠️  Error 2110: TWS→IBKR 断连，等待自动恢复（不主动重连）")
         elif errorCode == 2105:
-            # HMDS ushmds 断连 → 只记日志，不主动重连
-            # 原因：Gateway 与 IBKR 断连期间 2105 必然出现，此时 TCP 连接仍在；
-            # fetch_bars 有 3 次重试 + RuntimeError 机制，会在真正需要时触发重连
-            log.warning("⚠️  Error 2105: HMDS ushmds 断连（等待自动恢复）")
+            _hmds_ok[0] = False
+            log.warning("⚠️  Error 2105: HMDS ushmds 断连（bar 拉取将跳过，不重连）")
+        elif errorCode == 2106:
+            if not _hmds_ok[0]:
+                _hmds_ok[0] = True
+                log.info("✅  Error 2106: HMDS 数据服务已恢复")
+                tg_alert("✅ HMDS 已恢复，bar 拉取正常")
     ib.errorEvent += on_error
 
     # ── Bracket 成交回调：止损/止盈单成交时更新状态 ───────────────────
@@ -1261,7 +1340,9 @@ def main():
                         f"  NQ: 1H{nq_pos['1h']:+d} / 4H{nq_pos['4h']:+d} / 1D{nq_pos['1d']:+d}  净仓{nq_net:+d}手\n"
                         f"  ES: 4H{es_pos['4h']:+d} / 1D{es_pos['1d']:+d}  净仓{es_net:+d}手\n"
                         f"{_mr_status()}\n"
-                        f"{_nq_mr_status()}"
+                        f"{_nq_mr_status()}\n"
+                        f"{_gap_status()}\n"
+                        f"{_nq_range_status()}"
                     )
                     tg_alert(hb_msg)
 
@@ -1270,6 +1351,8 @@ def main():
 
             except KeyboardInterrupt:
                 raise
+            except HMDSUnavailableError as exc:
+                log.warning(f"⏭️  HMDS 离线，跳过此 bar: {exc}")
             except Exception as exc:
                 log.error(f"💥 主循环错误: {exc}，断线重连中...")
                 try: ib.disconnect()
