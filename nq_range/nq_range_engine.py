@@ -467,13 +467,18 @@ def main():
 
                 ib_pos = get_ib_position(ib)
                 st_pos = state["signed_contracts"]
-                if ib_pos != st_pos:
-                    log.warning(f"  ⚠ 持仓不一致：IB={ib_pos:+d}  状态文件={st_pos:+d}，以 IB 为准修正")
-                    state["signed_contracts"] = ib_pos
-                    save_state(state)
-                    tg_alert(f"⚠ NQ Range 持仓不一致，已修正 → {ib_pos:+d} 手")
-                else:
+                if ib_pos == st_pos:
                     log.info(f"  MNQ 持仓: {ib_pos:+d} 手  ✅")
+                elif st_pos != 0 and ib_pos == 0:
+                    # 我方持仓丢失（被外部平仓/崩溃）→ 必须重置，否则永远等出场信号
+                    log.warning(f"  ⚠ 持仓丢失: 状态={st_pos:+d} 但 IB=0，重置为0")
+                    state["signed_contracts"] = 0
+                    save_state(state)
+                    tg_alert(f"⚠ NQ Range 持仓丢失 {st_pos:+d}→0，请检查")
+                else:
+                    # IB≠0 且与状态不符：可能含其他bot持仓，不自动修正，只告警
+                    log.warning(f"  ⚠ 持仓不符: IB={ib_pos:+d} 状态={st_pos:+d}，保持状态文件不变（可能含其他bot持仓）")
+                    tg_alert(f"⚠ NQ Range 持仓不符 IB={ib_pos:+d} 状态={st_pos:+d}，请手动确认")
 
                 tg_alert(f"✅ NQ Range 引擎已连接  净值: ${equity:,.0f}  合约: {contract.localSymbol}")
                 return
