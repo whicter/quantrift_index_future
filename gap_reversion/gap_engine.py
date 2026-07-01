@@ -150,7 +150,9 @@ def get_ib_position(ib: IB) -> int:
     return total
 
 
-# ── 次季合约 ──────────────────────────────────────────────────────────
+# ── 第三季合约（再下一季）──────────────────────────────────────────────
+# Gap 用第三季合约（NQ MR / NQ Range 用次季，此处再推一个季度，避免持仓干扰）
+# 当前示例（2026-07）：前季=Sep(U6) → 次季=Dec(Z6) → Gap合约=Mar(H7)
 def get_deferred_mnq_contract(ib: IB):
     today = date.today()
     y, m, d = today.year, today.month, today.day
@@ -161,17 +163,22 @@ def get_deferred_mnq_contract(ib: IB):
             front_month = qm; break
     if front_month is None:
         front_month = 3; front_year = y + 1
+    # 次季（deferred）
     qi = quarters.index(front_month)
     def_month = quarters[qi + 1] if qi < 3 else 3
     def_year  = front_year if qi < 3 else front_year + 1
-    contract_str = f"{def_year}{def_month:02d}"
+    # 第三季（再往后一个季度）
+    def_qi     = quarters.index(def_month)
+    gap_month  = quarters[def_qi + 1] if def_qi < 3 else 3
+    gap_year   = def_year if def_qi < 3 else def_year + 1
+    contract_str = f"{gap_year}{gap_month:02d}"
     contract = Future("MNQ", lastTradeDateOrContractMonth=contract_str,
                       exchange=MNQ_EXCHANGE, currency="USD")
     qualified = ib.qualifyContracts(contract)
     if not qualified:
         raise RuntimeError(f"无法 qualify MNQ {contract_str}")
     c = qualified[0]
-    log.info(f"MNQ 次季合约: {c.localSymbol}  到期: {c.lastTradeDateOrContractMonth}")
+    log.info(f"MNQ Gap合约（第三季）: {c.localSymbol}  到期: {c.lastTradeDateOrContractMonth}")
     return c
 
 
@@ -259,22 +266,22 @@ def place_bracket(ib: IB, contract, direction: int, qty: int,
         log.info(f"  [DRY-RUN] {action} {qty} MNQ  TP={tp_price:.2f}  SL={sl_price:.2f}")
         return None, None
 
-    # 主单
+    # 主单先下，获取 orderId（parentId 必须在 placeOrder 后设置，此前 orderId=0）
     parent = MarketOrder(action, qty)
     parent.transmit = False
+    parent_trade = ib.placeOrder(contract, parent)
+    ib.sleep(1)  # 等待 Gateway 分配 orderId
 
-    # TP 限价
+    # TP 限价（parentId 在父单 placeOrder 之后设置）
     tp_order = LimitOrder(tp_action, qty, tp_price)
     tp_order.parentId = parent.orderId
     tp_order.transmit = False
 
-    # SL 止损
+    # SL 止损（transmit=True 触发全部三单同时生效）
     sl_order = StopOrder(tp_action, qty, sl_price)
     sl_order.parentId = parent.orderId
-    sl_order.transmit = True  # 最后一个transmit=True触发全部
+    sl_order.transmit = True
 
-    parent_trade = ib.placeOrder(contract, parent)
-    ib.sleep(1)
     tp_trade = ib.placeOrder(contract, tp_order)
     sl_trade = ib.placeOrder(contract, sl_order)
     ib.sleep(3)
@@ -432,14 +439,17 @@ def main():
     parser.add_argument("--client-id", type=int, default=CLIENT_ID, dest="client_id")
     args = parser.parse_args()
 
-    # 读 TG 配置
+    # 读 TG 配置（环境变量优先，再从 config.yaml 兜底）
     import yaml, os
-    cfg_path = _ROOT / "config.yaml"
-    if cfg_path.exists():
-        with open(cfg_path) as f:
-            cfg_main = yaml.safe_load(f)
-        _TG["token"]   = cfg_main.get("telegram", {}).get("token", "")
-        _TG["chat_id"] = cfg_main.get("telegram", {}).get("chat_id", "")
+    _TG["token"]   = os.environ.get("TG_TOKEN",   "")
+    _TG["chat_id"] = os.environ.get("TG_CHAT_ID", "")
+    if not _TG["token"]:
+        cfg_path = _ROOT / "config.yaml"
+        if cfg_path.exists():
+            with open(cfg_path) as f:
+                cfg_main = yaml.safe_load(f)
+            _TG["token"]   = cfg_main.get("telegram", {}).get("token", "")
+            _TG["chat_id"] = cfg_main.get("telegram", {}).get("chat_id", "")
 
     client_id = args.client_id
     log.info("═" * 60)

@@ -467,6 +467,7 @@ def main():
         return
 
     log.info("\n▶ 等待 1H Bar 收盘触发...\n")
+    _last_bar_time = [None]
     while True:
         _time.sleep(1)
         now_et = datetime.now(ET)
@@ -482,6 +483,10 @@ def main():
             continue
 
         if is_bar_close(now_et):
+            bar_key = now_et.replace(minute=0, second=0, microsecond=0)
+            if _last_bar_time[0] == bar_key:
+                continue
+            _last_bar_time[0] = bar_key
             log.info(f"\n{'═'*62}")
             log.info(f"  1H Bar 收盘触发  {now_et.strftime('%Y-%m-%d %H:%M ET')}")
             log.info(f"{'═'*62}")
@@ -497,6 +502,10 @@ def main():
                 tg_alert(f"❌ Spread 引擎异常: {e}")
                 needs_reconnect[0] = True
             else:
+                save_state(state)
+        else:
+            # 空仓期每小时更新状态文件 mtime，防止健康检查误报 stale
+            if now_et.minute == 30 and now_et.second <= 5:
                 save_state(state)
 
 
