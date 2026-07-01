@@ -38,6 +38,7 @@
 | ✅ | 写 nq_mr_engine.py（MNQ 次季合约，clientId=22）|
 | ✅ | live_engine.py 加入 _nq_mr_status() 心跳监控 |
 | ✅ | 确认 clientId=22 无冲突 |
-| ⏳ | 干跑测试（--run-now --dry-run）|
-| ⏳ | pm2 注册 + 模拟盘观察 2 周 |
+| ✅ | 干跑测试（2026-06-30，HMDS 恢复后，信号：空仓无动作）|
+| ✅ | pm2 注册（ib-bot-nq-mr，id=5，2026-06-30）|
+| ⏳ | 模拟盘观察 2 周 |
 | ⏳ | 切换实盘 |
