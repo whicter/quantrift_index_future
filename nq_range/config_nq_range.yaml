@@ -1,0 +1,37 @@
+# NQ Range Strategy — 参数配置
+# 1H 基线回测（2024-03 ~ 2026-06）: 120笔，WR 62.5%，Sharpe 1.098，MaxDD -0.91%
+
+data_file: data/NQF_1h_2024-03-01_2026-06-24.csv
+start: "2024-03-01"
+end:   "2026-06-24"
+interval: "1h"
+
+contract_size: 2      # MNQ $2/点
+commission: 0.00002
+margin: 0.05
+cash: 100000
+n_contracts: 1
+risk_pct: 1.0      # 每笔风险 = 净值 × 1.0%
+
+# 布林带
+bb_len: 20
+bb_mult: 2.0
+
+# RSI
+rsi_len: 14
+rsi_entry: 45.0       # RSI < 45 才入场
+
+# ATR
+atr_len: 14
+
+# 市场过滤器
+adx_len: 14
+adx_threshold: 25.0   # ADX < 25 = 非趋势
+ci_len: 14
+ci_threshold: 55.0    # CI > 55 = 震荡市
+
+# 出场
+sl_mult: 1.5          # SL = 入场价 - ATR × 1.5
+
+# 策略方向
+long_only: true
