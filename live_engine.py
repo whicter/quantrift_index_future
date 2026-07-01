@@ -282,6 +282,43 @@ def _nq_range_status() -> str:
         return f"ib-bot-nq-range（NQ Range）❌ 状态读取失败: {e}"
 
 
+def _spread_status() -> str:
+    """读取 ib-bot-spread 的状态文件，返回单行状态描述。"""
+    import subprocess, time as _t
+    try:
+        r = subprocess.run(["/usr/bin/pgrep", "-f", "spread_engine.py"], capture_output=True)
+        alive = r.returncode == 0
+        if SPREAD_STATE_FILE.exists():
+            with open(SPREAD_STATE_FILE) as f:
+                s = json.load(f)
+            direction = s.get("direction", 0)
+            mnq = s.get("mnq_signed", 0)
+            mes = s.get("mes_signed", 0)
+            if direction == 0:
+                pos_str = "空仓"
+            elif direction == 1:
+                pos_str = f"多spread MNQ{mnq:+d}/MES{mes:+d}"
+            else:
+                pos_str = f"空spread MNQ{mnq:+d}/MES{mes:+d}"
+            stale_secs = _t.time() - SPREAD_STATE_FILE.stat().st_mtime
+            stale_h    = stale_secs / 3600
+            now_et = datetime.now(ET)
+            wd = now_et.weekday()
+            in_market = not (wd == 5 or (wd == 6 and now_et.hour < 18) or now_et.hour == 17)
+            if not alive:
+                status = "❌ 进程不存在"
+            elif in_market and stale_secs > 7200:
+                status = f"❌ 状态文件 {stale_h:.1f}h 未更新"
+            else:
+                status = "✅"
+            return f"ib-bot-spread（Spread）{status}  {pos_str}"
+        else:
+            return f"ib-bot-spread（Spread）{'✅' if alive else '❌ 未运行'}  状态文件不存在"
+    except Exception as e:
+        log.error(f"_spread_status() 异常: {e}", exc_info=True)
+        return f"ib-bot-spread（Spread）❌ 状态读取失败: {e}"
+
+
 # ── 路径 / 时区 ────────────────────────────────────────────────────────
 BASE_DIR      = Path(__file__).parent
 LOG_DIR       = BASE_DIR / "logs"
@@ -290,6 +327,7 @@ MR_STATE_FILE    = BASE_DIR / "es_mr" / "mr_state.json"
 NQ_MR_STATE_FILE = BASE_DIR / "nq_mr" / "nq_mr_state.json"
 GAP_STATE_FILE      = BASE_DIR / "gap_reversion" / "gap_state.json"
 NQ_RANGE_STATE_FILE = BASE_DIR / "nq_range" / "nq_range_state.json"
+SPREAD_STATE_FILE   = BASE_DIR / "nq_es_spread" / "spread_state.json"
 VIX_CSV       = BASE_DIR / "data" / "VIX_1d.csv"
 LOG_DIR.mkdir(exist_ok=True)
 ET = ZoneInfo("America/New_York")
@@ -1082,6 +1120,7 @@ def main():
                 alert_parts.append(_nq_mr_status())
                 alert_parts.append(_gap_status())
                 alert_parts.append(_nq_range_status())
+                alert_parts.append(_spread_status())
                 tg_alert("\n".join(alert_parts))
                 return
             except Exception as exc:
@@ -1342,7 +1381,8 @@ def main():
                         f"{_mr_status()}\n"
                         f"{_nq_mr_status()}\n"
                         f"{_gap_status()}\n"
-                        f"{_nq_range_status()}"
+                        f"{_nq_range_status()}\n"
+                        f"{_spread_status()}"
                     )
                     tg_alert(hb_msg)
 
