@@ -139,8 +139,6 @@ def _reset_daily_count_if_new_day(state: dict) -> dict:
 # ══════════════════════════════════════════════════════════════════════
 
 def get_account_equity(ib: IB) -> float:
-    ib.reqAccountSummary()
-    ib.sleep(2)
     for v in ib.accountValues():
         if v.tag == "NetLiquidation" and v.currency == "USD":
             eq = float(v.value)

@@ -129,8 +129,6 @@ def get_prev_vix() -> float | None:
 
 # ── 账户 / 持仓 ───────────────────────────────────────────────────────
 def get_account_equity(ib: IB) -> float:
-    ib.reqAccountSummary()
-    ib.sleep(2)
     for v in ib.accountValues():
         if v.tag == "NetLiquidation" and v.currency == "USD":
             eq = float(v.value)
