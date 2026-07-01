@@ -392,7 +392,7 @@ IS/OOS：无过拟合（OOS Sharpe 1.000）
 
 注：OOS Sharpe 偏低（0.656），WR 稳定提升，MaxDD 控制好，值得实盘。
 **15min 数据**：NQF_15min_2024-06-23_2026-06-30.csv（46581 bars）已下载，待跑完整回测。
-**待办**：15min 完整回测 → 干跑 → pm2 注册
+**实盘状态**：pm2 ib-bot-nq-range（id=7）已注册，2026-06-30 上线，clientId=23
 
 ---
 

@@ -32,5 +32,11 @@
 | ✅ | 写 backtest_nq_range.py（支持 --all-tf 多周期对比）|
 | ✅ | 写 nq_range_engine.py（clientId=23，ATR动态定仓）|
 | ✅ | 分配 clientId=23 |
-| ⏳ | 干跑测试 |
-| ⏳ | pm2 注册 |
+| ✅ | 干跑测试（ATR=88.96，空仓无动作，逻辑正确）|
+| ✅ | pm2 注册（ib-bot-nq-range，id=7，2026-06-30）|
+
+## Phase 5：实盘观察
+| 状态 | 任务 |
+|------|------|
+| ⏳ | 模拟盘观察 2 周 |
+| ⏳ | 切换实盘（clientId=23，port=4001）|
