@@ -193,6 +193,48 @@ $100k 档手数演进：2024（5/4/3）→ 2025（6/5/4）→ 2026（9/7/6），
 | `compare_pyramid_risk.py` | pyramid 风险参数对比 |
 | `pyramid_sizing.py` | 全历史复利回测（$100k/$200k 月度调仓） |
 
+## Bug 修复（2026-07-01）
+
+**全面审查发现并修复 6 个 bug**（commits 1686f61、84688c6、d9c1e6c）：
+
+**🔴 Spread 双触发**（spread_engine.py）：
+- `is_bar_close()` 窗口 30s，处理仅需 ~20s，处理完后主循环再次触发同一根 bar
+- 修复：加 `_last_bar_time` 追踪，每根 bar 只处理一次
+- 顺带：空仓期每 :30 分调用 `save_state()`，防健康检查 stale 误报
+
+**🔴 Gap bracket order parentId=0**（gap_engine.py）：
+- `MarketOrder` 初始 `orderId=0`，TP/SL 在父单 `placeOrder` 之前设置 `parentId` → 永远是 0
+- 结果：TP/SL 是独立悬空单，不与父单绑定，入场后 TP/SL 无法正常保护
+- 修复：先 `placeOrder(parent)`，`ib.sleep(1)` 等待 orderId 分配，再设置子单 `parentId`
+
+**🔴 MR/Range/Gap 持仓相互干扰**（nq_mr_engine.py、nq_range_engine.py）：
+- 三个 bot 共用同一合约，`get_ib_position()` 返回账户所有 MNQ 持仓之和，无法区分谁的
+- 重连 reconcile 时：NQ MR 有 +2 → NQ Range 重连看到 +2，强制将自己状态改为 +2，然后策略判断"应空仓"→ SELL 2 MNQ 关掉 NQ MR 的仓位
+- 修复1：Gap 合约改为**第三季**（MNQH7，Mar 2027），与 MR/Range 的 MNQZ6 物理隔离
+- 修复2：reconcile 逻辑单向化：只在 `state>0 且 IB=0`（持仓确实丢失）时自动修正；IB>state 时仅告警不修改
+
+**🟡 Gap Telegram 失效**（gap_engine.py）：
+- 从 `config.yaml` 读 token（值为空），其他 bot 均从环境变量 `TG_TOKEN` 读
+- 修复：env var 优先，config.yaml 作回退
+
+**🟡 Error 322 reqAccountSummary 噪音**（nq_mr/nq_range/gap_engine.py）：
+- `get_account_equity()` 每次调用 `reqAccountSummary()` 但从不取消，产生 Error 322
+- ib_insync 连接后自动维护 `accountValues()` 缓存，无需重复订阅
+- 修复：去掉 `reqAccountSummary()` + `ib.sleep(2)`，直接读 `accountValues()` 缓存
+
+**合约隔离现状**：
+
+| Bot | 合约 |
+|-----|------|
+| ib-bot（趋势）| MNQU6 / MESU6（当季，ContFuture）|
+| ib-bot-mr（ES MR）| MESZ6（次季）|
+| ib-bot-nq-mr（NQ MR）| MNQZ6（次季）|
+| ib-bot-nq-range（NQ Range）| MNQZ6（次季）|
+| ib-bot-gap（Gap）| **MNQH7（第三季）** |
+| ib-bot-spread（Spread）| MNQZ6 + MESZ6（次季）|
+
+---
+
 ## 最近实现（2026-06-23）
 
 **mr_engine.py 断连修复**（commit eff0131）：
