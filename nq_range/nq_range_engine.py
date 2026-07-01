@@ -344,12 +344,7 @@ def process(ib: IB, contract, cfg: dict, state: dict,
     # 2. 计算 ATR（用于定仓）
     import numpy as np
     h, l, c = df["High"].values, df["Low"].values, df["Close"].values
-    tr = pd.DataFrame({
-        'hl': h - l,
-        'hc': abs(h[1:] - c[:-1]),
-        'lc': abs(l[1:] - c[:-1]),
-    }, index=range(1, len(h)))
-    # Simpler: use last 14-bar ATR
+    # ATR via EWM
     atr_series = pd.DataFrame({
         'hl': pd.Series(h) - pd.Series(l),
         'hc': pd.Series(h).diff().abs(),
